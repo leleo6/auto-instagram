@@ -70,9 +70,7 @@ OUTPUT_FILE      = OUTPUT_DIR / f"reel_{datetime.now().strftime('%Y-%m-%d')}.mp4
 # Set UPLOAD=true in the environment (or .env) to enable the Instagram upload
 UPLOAD_ENABLED   = os.getenv("UPLOAD", "false").lower() in ("1", "true", "yes")
 
-# Required only when UPLOAD=true
-VIDEO_PUBLIC_BASE_URL = os.getenv("VIDEO_PUBLIC_BASE_URL", "").rstrip("/")
-REEL_CAPTION          = os.getenv(
+REEL_CAPTION = os.getenv(
     "REEL_CAPTION",
     "✨ Daily motivation 🚀 #motivation #mindset #daily",
 )
@@ -101,22 +99,12 @@ def run() -> None:
         log.info("   Local file: %s", reel_path)
         return
 
-    if not VIDEO_PUBLIC_BASE_URL:
-        log.error(
-            "❌ VIDEO_PUBLIC_BASE_URL is not set — Instagram needs a public HTTPS URL.\n"
-            "   Set it in your .env file or environment."
-        )
-        sys.exit(1)
-
-    public_url = f"{VIDEO_PUBLIC_BASE_URL}/{reel_path.name}"
-    log.info("Uploading → %s", public_url)
-
     try:
         media_id = upload_reel(
-            public_video_url=public_url,
+            video_path=reel_path,
             caption=REEL_CAPTION,
         )
-        log.info("✅ Reel published! Instagram media ID: %s", media_id)
+        log.info("✅ Reel publicado en Instagram. Media ID: %s", media_id)
     except Exception as exc:
         log.exception("❌ Upload failed: %s", exc)
         sys.exit(1)

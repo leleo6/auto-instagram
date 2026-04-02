@@ -1,100 +1,81 @@
 """
 instagram_uploader.py
 ─────────────────────────────────────────────────────────────────────────────
-Modular uploader for the Instagram Graph API (Reels endpoint).
+Sube un Reel a Instagram usando instagrapi (API privada).
 
-Prerequisites
-─────────────────────────────────────────────────────────────────────────────
-1.  A Facebook Developer App with instagram_content_publish permission.
-2.  A connected Instagram *Professional* (Business or Creator) account.
-3.  A long-lived User Access Token with the scopes:
-       instagram_content_publish, instagram_basic
+Características anti-bot:
+  - Sesión persistente en session.json → evita login en cada ejecución.
+  - Simula un dispositivo Android real (mismo UUID entre sesiones).
+  - Delays aleatorios entre acciones.
+  - Re-login automático si la sesión expira.
 
-API flow (Reels, 2-step upload)
-─────────────────────────────────────────────────────────────────────────────
-Step 1 → POST  /v19.0/{ig_user_id}/media
-            video_url=<publicly accessible URL>
-            caption=<your caption>
-            media_type=REELS
-         → returns  { "id": "<CREATION_ID>" }
-
-Step 2 → POST  /v19.0/{ig_user_id}/media_publish
-            creation_id=<CREATION_ID>
-         → returns  { "id": "<MEDIA_ID>" }  ← the published post ID
-
-Note: The video file must be hosted at a **publicly accessible HTTPS URL**.
-      Instagram cannot pull from a local path.
-      You can use S3, Cloudinary, Google Cloud Storage, etc.
-
-Replace the PLACEHOLDER values below with your real credentials before use.
+Variables de entorno requeridas (.env):
+  INSTAGRAM_USERNAME  → tu @usuario (sin @)
+  INSTAGRAM_PASSWORD  → tu contraseña
 """
 
 import os
 import time
+import random
 import logging
 from pathlib import Path
 
-import requests  # pip install requests
+from instagrapi import Client
+from instagrapi.exceptions import LoginRequired, ClientLoginRequired
 
 log = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ⚠️  CREDENTIALS — replace with real values (or load from env / .env file)
+# CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Credentials are loaded from environment variables (set in .env or system env).
-# main.py loads .env automatically via python-dotenv before importing this module.
-ACCESS_TOKEN    = os.getenv("INSTAGRAM_ACCESS_TOKEN", "")
-IG_USER_ID      = os.getenv("INSTAGRAM_USER_ID", "")
-GRAPH_API_BASE  = "https://graph.facebook.com/v19.0"
-
-# Maximum seconds to wait for Instagram to finish processing the video
-PUBLISH_TIMEOUT = 120
-POLL_INTERVAL   = 10   # seconds between status checks
+_HERE        = Path(__file__).resolve().parent
+SESSION_FILE = _HERE / "session.json"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _raise_for_api_error(response: requests.Response) -> dict:
-    """Parse the JSON response and raise a clear error on API failures."""
-    data = response.json()
-    if "error" in data:
-        err = data["error"]
-        raise RuntimeError(
-            f"Instagram API error {err.get('code')}: {err.get('message')}"
-        )
-    return data
-
-
-def _poll_container_status(creation_id: str) -> None:
+def _build_client() -> Client:
     """
-    Wait until Instagram finishes processing the video container.
-    Raises RuntimeError if it enters an error state or times out.
+    Crea un Client con configuración de dispositivo consistente.
+    Si ya existe session.json se carga el UUID/device guardado para que
+    Instagram reconozca el mismo "teléfono" entre sesiones.
     """
-    url    = f"{GRAPH_API_BASE}/{creation_id}"
-    params = {"fields": "status_code", "access_token": ACCESS_TOKEN}
-    elapsed = 0
+    cl = Client()
 
-    while elapsed < PUBLISH_TIMEOUT:
-        resp   = requests.get(url, params=params, timeout=30)
-        data   = _raise_for_api_error(resp)
-        status = data.get("status_code", "UNKNOWN")
-        log.info("Container status: %s (elapsed %ds)", status, elapsed)
+    # Cargar configuración previa (device UUID, cookies, tokens…)
+    if SESSION_FILE.exists():
+        cl.load_settings(SESSION_FILE)
+        log.info("📂 Sesión previa cargada desde %s", SESSION_FILE)
 
-        if status == "FINISHED":
-            return
-        if status == "ERROR":
-            raise RuntimeError("Instagram reported an ERROR processing the video.")
+    return cl
 
-        time.sleep(POLL_INTERVAL)
-        elapsed += POLL_INTERVAL
 
-    raise TimeoutError(
-        f"Timed out waiting for Instagram to process the video "
-        f"(waited {PUBLISH_TIMEOUT}s)."
-    )
+def _login(cl: Client, username: str, password: str) -> None:
+    """
+    Inicia sesión. Si la sesión guardada sigue siendo válida, solo
+    refresca las cookies (mucho más rápido y menos detectable).
+    """
+    try:
+        cl.login(username, password)
+        log.info("✅ Login exitoso como @%s", username)
+    except Exception as exc:
+        log.warning("⚠️  Login con sesión guardada falló (%s). Reintentando fresh…", exc)
+        # Borrar sesión rota y reintentar desde cero
+        if SESSION_FILE.exists():
+            SESSION_FILE.unlink()
+        cl = Client()          # cliente limpio sin settings anteriores
+        cl.login(username, password)
+        log.info("✅ Login fresh exitoso como @%s", username)
+
+    # Siempre persistir la sesión actualizada
+    cl.dump_settings(SESSION_FILE)
+    log.info("💾 Sesión guardada en %s", SESSION_FILE)
+
+
+def _human_delay(min_s: float = 2.0, max_s: float = 6.0) -> None:
+    """Espera aleatoria para simular comportamiento humano."""
+    t = random.uniform(min_s, max_s)
+    log.debug("⏳ Esperando %.1fs…", t)
+    time.sleep(t)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -102,87 +83,72 @@ def _poll_container_status(creation_id: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def upload_reel(
-    public_video_url: str,
-    caption: str        = "",
-    access_token: str   = ACCESS_TOKEN,
-    ig_user_id: str     = IG_USER_ID,
-    cover_url: str      = "",   # optional thumbnail URL
+    video_path: Path | str,
+    caption: str = "",
+    username: str | None = None,
+    password: str | None = None,
 ) -> str:
     """
-    Upload a Reel to Instagram via the Graph API.
+    Sube el video local a Instagram como Reel.
 
     Parameters
     ----------
-    public_video_url : str
-        A publicly accessible HTTPS URL to the rendered .mp4 file.
+    video_path : Path | str
+        Ruta local al archivo .mp4 (1080x1920).
     caption : str
-        Post caption / description (supports hashtags and emojis).
-    access_token : str
-        Long-lived User Access Token.
-    ig_user_id : str
-        Numeric Instagram Business / Creator account ID.
-    cover_url : str
-        Optional public URL for the Reel's cover thumbnail.
+        Pie de foto / descripción del Reel (hashtags y emojis incluidos).
+    username : str | None
+        @usuario. Si es None, se lee de INSTAGRAM_USERNAME.
+    password : str | None
+        Contraseña. Si es None, se lee de INSTAGRAM_PASSWORD.
 
     Returns
     -------
     str
-        The published Instagram media ID.
+        El media_pk (ID) del Reel publicado.
     """
-    log.info("Step 1/2 — Creating media container …")
+    video_path = Path(video_path)
+    if not video_path.exists():
+        raise FileNotFoundError(f"El video no existe: {video_path}")
 
-    # ── Step 1: Create the media container ───────────────────────────────────
-    create_payload = {
-        "media_type":  "REELS",
-        "video_url":   public_video_url,
-        "caption":     caption,
-        "access_token": access_token,
-    }
-    if cover_url:
-        create_payload["cover_url"] = cover_url
+    username = username or os.getenv("INSTAGRAM_USERNAME", "")
+    password = password or os.getenv("INSTAGRAM_PASSWORD", "")
 
-    resp        = requests.post(
-        f"{GRAPH_API_BASE}/{ig_user_id}/media",
-        data=create_payload,
-        timeout=60,
-    )
-    data        = _raise_for_api_error(resp)
-    creation_id = data["id"]
-    log.info("Container created: %s", creation_id)
+    if not username or not password:
+        raise ValueError(
+            "Faltan credenciales. Define INSTAGRAM_USERNAME e "
+            "INSTAGRAM_PASSWORD en tu archivo .env"
+        )
 
-    # ── Wait for Instagram to process the video ───────────────────────────────
-    _poll_container_status(creation_id)
+    log.info("══════════════════════════════════════════")
+    log.info("  Instagram Uploader  (instagrapi)")
+    log.info("══════════════════════════════════════════")
 
-    # ── Step 2: Publish the container ─────────────────────────────────────────
-    log.info("Step 2/2 — Publishing container %s …", creation_id)
-    publish_payload = {
-        "creation_id":  creation_id,
-        "access_token": access_token,
-    }
-    resp     = requests.post(
-        f"{GRAPH_API_BASE}/{ig_user_id}/media_publish",
-        data=publish_payload,
-        timeout=30,
-    )
-    data     = _raise_for_api_error(resp)
-    media_id = data["id"]
-    log.info("✅ Reel published! Media ID: %s", media_id)
+    # ── 1. Construir cliente con sesión previa ────────────────────────────────
+    cl = _build_client()
+
+    # ── 2. Login (reutiliza cookies si son válidas) ───────────────────────────
+    _login(cl, username, password)
+
+    # ── 3. Pequeña pausa antes de subir ──────────────────────────────────────
+    _human_delay(3, 8)
+
+    # ── 4. Subir el Reel ─────────────────────────────────────────────────────
+    log.info("📤 Subiendo Reel: %s", video_path.name)
+    try:
+        media = cl.clip_upload(
+            path=video_path,
+            caption=caption,
+        )
+    except (LoginRequired, ClientLoginRequired):
+        # Sesión expirada durante el upload → re-login y reintentar
+        log.warning("🔄 Sesión expirada. Re-autenticando…")
+        SESSION_FILE.unlink(missing_ok=True)
+        cl = Client()
+        _login(cl, username, password)
+        _human_delay(3, 6)
+        media = cl.clip_upload(path=video_path, caption=caption)
+
+    media_id = str(media.pk)
+    log.info("✅ Reel publicado. Media ID: %s", media_id)
     return media_id
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# QUICK TEST (delete in production)
-# ─────────────────────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
-    # Replace with a real public URL to test
-    test_url = "https://your-cdn.example.com/daily_reel.mp4"
-    test_cap = "✨ Daily motivation by AutoReel 🚀 #motivation #daily"
-
-    media_id = upload_reel(
-        public_video_url=test_url,
-        caption=test_cap,
-    )
-    print(f"Published Reel ID: {media_id}")

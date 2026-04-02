@@ -1,8 +1,9 @@
 # Virtual environment
 .venv/
 
-# Credentials — NEVER commit this
+# Credentials & session — NEVER commit these
 .env
+session.json
 
 # Generated reels
 output/*.mp4
