@@ -29,6 +29,7 @@ Note: The video file must be hosted at a **publicly accessible HTTPS URL**.
 Replace the PLACEHOLDER values below with your real credentials before use.
 """
 
+import os
 import time
 import logging
 from pathlib import Path
@@ -41,8 +42,10 @@ log = logging.getLogger(__name__)
 # ⚠️  CREDENTIALS — replace with real values (or load from env / .env file)
 # ─────────────────────────────────────────────────────────────────────────────
 
-ACCESS_TOKEN    = "YOUR_LONG_LIVED_ACCESS_TOKEN_HERE"   # <── placeholder
-IG_USER_ID      = "YOUR_INSTAGRAM_BUSINESS_ACCOUNT_ID"  # <── placeholder
+# Credentials are loaded from environment variables (set in .env or system env).
+# main.py loads .env automatically via python-dotenv before importing this module.
+ACCESS_TOKEN    = os.getenv("INSTAGRAM_ACCESS_TOKEN", "")
+IG_USER_ID      = os.getenv("INSTAGRAM_USER_ID", "")
 GRAPH_API_BASE  = "https://graph.facebook.com/v19.0"
 
 # Maximum seconds to wait for Instagram to finish processing the video

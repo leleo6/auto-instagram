@@ -1,0 +1,16 @@
+# Virtual environment
+.venv/
+
+# Credentials — NEVER commit this
+.env
+
+# Generated reels
+output/*.mp4
+
+# Logs
+logs/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo

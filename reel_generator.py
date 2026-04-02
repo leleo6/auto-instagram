@@ -37,13 +37,17 @@ TARGET_H   = 1920          # Final height (pixels)
 REEL_DURATION = 10         # Seconds
 AUDIO_FADEOUT = 2          # Seconds of fade-out at the end of the audio
 
-BACKGROUNDS_DIR = Path("./backgrounds")
-MUSIC_DIR       = Path("./music")
-QUOTES_FILE     = Path("./quotes.txt")
-OUTPUT_FILE     = Path("./daily_reel.mp4")
+# Use the script's own directory as the base so cron (which may run from /)
+# can still resolve all relative asset paths correctly.
+_HERE = Path(__file__).resolve().parent
+
+BACKGROUNDS_DIR = _HERE / "backgrounds"
+MUSIC_DIR       = _HERE / "music"
+QUOTES_FILE     = _HERE / "quotes.txt"
+OUTPUT_FILE     = _HERE / "output" / "reel_del_dia.mp4"
 
 # Text styling
-FONT_PATH      = "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"  # Arch Linux path
+FONT_PATH      = "/usr/share/fonts/liberation/LiberationSans-Bold.ttf"
 FONT_SIZE      = 72
 TEXT_COLOR     = "white"
 STROKE_COLOR   = "black"
