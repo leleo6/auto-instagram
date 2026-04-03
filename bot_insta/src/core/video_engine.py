@@ -1,0 +1,200 @@
+"""
+video_engine.py
+─────────────────────────────────────────────────────────────────────────────
+Genera un Reel diario 9:16 combinando videos, audios y texto.
+Soporta: fade-in de texto, volumen de audio, e imagen overlay opcional.
+"""
+
+import os
+import random
+import textwrap
+import logging
+import datetime
+from pathlib import Path
+
+import PIL.Image
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = getattr(PIL.Image, 'LANCZOS', PIL.Image.Resampling.LANCZOS)
+
+from moviepy.editor import (
+    VideoFileClip,
+    AudioFileClip,
+    TextClip,
+    ImageClip,
+    CompositeVideoClip,
+    concatenate_videoclips,
+    concatenate_audioclips,
+)
+from moviepy.audio.fx.audio_fadeout import audio_fadeout
+
+from bot_insta.src.core.config_loader import config
+
+log = logging.getLogger(__name__)
+
+
+def pick_random_file(directory: Path, extensions: tuple) -> Path:
+    if not directory.exists() or not directory.is_dir():
+        raise FileNotFoundError(f"Directorio de recursos no existe: {directory}")
+    files = [f for f in directory.iterdir() if f.suffix.lower() in extensions]
+    if not files:
+        raise FileNotFoundError(f"No hay archivos {extensions} en '{directory}'.")
+    chosen = random.choice(files)
+    log.info("Seleccionado asset: %s", chosen.name)
+    return chosen
+
+
+def load_random_quote(quotes_file: Path) -> str:
+    if not quotes_file.exists():
+        raise FileNotFoundError(f"Quotes file not found: {quotes_file}")
+    with quotes_file.open("r", encoding="utf-8") as fh:
+        lines = [ln.strip() for ln in fh if ln.strip()]
+    if not lines:
+        raise ValueError(f"'{quotes_file}' está vacío.")
+    quote = random.choice(lines)
+    log.info("Frase seleccionada: %r", quote)
+    return quote
+
+
+def prepare_background(video_path: Path, duration: float, target_w: int, target_h: int) -> VideoFileClip:
+    clip = VideoFileClip(str(video_path))
+    if clip.duration < duration:
+        loops = int(duration / clip.duration) + 1
+        clip = concatenate_videoclips([clip] * loops)
+    clip = clip.subclip(0, duration)
+
+    clip_ratio   = clip.w / clip.h
+    target_ratio = target_w / target_h
+
+    if clip_ratio > target_ratio:
+        new_h = target_h
+        new_w = int(clip.w * target_h / clip.h)
+    else:
+        new_w = target_w
+        new_h = int(clip.h * target_w / clip.w)
+
+    resized = clip.resize((new_w, new_h))
+    x1 = (new_w - target_w) // 2
+    y1 = (new_h - target_h) // 2
+    return resized.crop(x1=x1, y1=y1, x2=x1 + target_w, y2=y1 + target_h)
+
+
+def prepare_audio(audio_path: Path, duration: float, fadeout: float, volume: float = 1.0) -> AudioFileClip:
+    audio = AudioFileClip(str(audio_path))
+    if audio.duration < duration:
+        loops = int(duration / audio.duration) + 1
+        audio = concatenate_audioclips([audio] * loops)
+    audio = audio.subclip(0, duration)
+    if volume != 1.0:
+        audio = audio.volumex(max(0.0, min(1.0, volume)))
+    return audio_fadeout(audio, fadeout)
+
+
+def build_text_overlay(quote: str, duration: float, text_cfg: dict) -> TextClip:
+    quoted  = f"\u201c{quote}\u201d"
+    wrapped = textwrap.fill(quoted, width=text_cfg.get('wrap_width', 30))
+
+    # Position
+    raw_pos = text_cfg.get("position", "center")
+    if isinstance(raw_pos, list) and len(raw_pos) == 2:
+        pos = (raw_pos[0], raw_pos[1])
+    else:
+        pos = raw_pos
+
+    kwargs = {
+        "fontsize": text_cfg.get('font_size', 72),
+        "font": text_cfg.get('font_path', 'Arial'),
+        "color": str(text_cfg.get('color', 'white')),
+        "method": "caption",
+        "size": (text_cfg.get('max_width', 880), None),
+        "align": "center",
+    }
+    stroke = text_cfg.get('stroke_width', 0)
+    if stroke > 0:
+        kwargs["stroke_width"] = stroke
+        kwargs["stroke_color"] = text_cfg.get('stroke_color', 'black')
+
+    clip = TextClip(wrapped, **kwargs).set_duration(duration).set_position(pos)
+
+    # Fade-in animation
+    fadein_s = float(text_cfg.get('fadein', 0))
+    if fadein_s > 0:
+        clip = clip.crossfadein(fadein_s)
+
+    return clip
+
+
+def build_overlay(overlay_path: Path, duration: float, target_w: int, target_h: int):
+    """Load a PNG watermark/logo and place it bottom-right with 80% opacity."""
+    if not overlay_path or not overlay_path.exists():
+        return None
+    img = ImageClip(str(overlay_path), ismask=False)
+    # Scale to ~15% of frame width
+    scale = (target_w * 0.15) / img.w
+    img = img.resize(scale)
+    # Position: 20px from bottom-right
+    x = target_w - img.w - 20
+    y = target_h - img.h - 20
+    return img.set_position((x, y)).set_duration(duration).set_opacity(0.8)
+
+
+def create_reel() -> Path:
+    """Full pipeline orchestrator — reads active profile from config."""
+    log.info("═══ Iniciando generación del Reel ═══")
+
+    # ── Resolve config ──────────────────────────────────────────────────────
+    bg_dir      = config.get_path("backgrounds")
+    music_dir   = config.get_path("music")
+    quotes_file = config.get_path("quotes")
+
+    vid_cfg   = config.get_video_settings()
+    duration  = vid_cfg.get("duration", 10)
+    target_w  = vid_cfg.get("target_w", 1080)
+    target_h  = vid_cfg.get("target_h", 1920)
+    fadeout   = vid_cfg.get("audio_fadeout", 2)
+
+    text_cfg  = config.get_text_settings()
+    audio_cfg = config.get_audio_settings()
+    volume    = float(audio_cfg.get("volume", 1.0))
+
+    prof_data = config.get_active_profile_data()
+    overlay_name = prof_data.get("overlay_image", "")
+
+    # ── Pick assets ─────────────────────────────────────────────────────────
+    bg_path    = pick_random_file(bg_dir,    (".mp4", ".mov", ".avi"))
+    music_path = pick_random_file(music_dir, (".mp3", ".wav", ".aac"))
+    quote      = load_random_quote(quotes_file)
+
+    # ── Build clips ─────────────────────────────────────────────────────────
+    background = prepare_background(bg_path, duration, target_w, target_h)
+    audio      = prepare_audio(music_path, duration, fadeout, volume)
+    text       = build_text_overlay(quote, duration, text_cfg)
+
+    layers = [background, text]
+
+    # Optional overlay/watermark
+    if overlay_name:
+        overlay_path = config.get_path("overlays") / overlay_name
+        overlay_clip = build_overlay(overlay_path, duration, target_w, target_h)
+        if overlay_clip:
+            layers.append(overlay_clip)
+
+    final = CompositeVideoClip(layers, size=(target_w, target_h)).set_audio(audio)
+
+    # ── Export ──────────────────────────────────────────────────────────────
+    today      = datetime.datetime.now().strftime("%Y-%m-%d-%H%M")
+    output_dir = config.get_path("output_dir")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_file   = output_dir / f"reel_{today}.mp4"
+
+    log.info("Renderizando → %s", out_file)
+    final.write_videofile(
+        str(out_file),
+        fps=30,
+        codec="libx264",
+        audio_codec="aac",
+        preset="fast",
+        threads=os.cpu_count(),
+        logger="bar",
+    )
+    log.info("═══ Reel guardado en %s ═══", out_file)
+    return out_file
