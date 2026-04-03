@@ -1,123 +1,107 @@
-# 🎬 Auto Instagram — Daily Reels Generator
+# 🎬 Auto Instagram — Daily Reels Generator & Uploader
 
-Automates the creation (and optional upload) of a daily 9:16 Instagram Reel
-by randomly combining a background video, a music track, and a motivational quote.
+A robust, modular platform to automatically generate and upload daily vertical videos (Reels/Shorts/TikToks) with motivational quotes, background videos, and music. Includes a minimalist graphical interface (GUI).
+
+---
+
+## 🚀 Features
+- **Video Generator:** Assembles highly engaging 9:16 videos natively using `moviepy 1.0.3` with wrapped, styled, and drop-shadow text overlays.
+- **Graphic Interface (GUI):** A clean `customtkinter` dashboard to visually configure styles, manage profiles, preview the video layout live, and upload right from your screen.
+- **Auto-Upload Integrations:** 
+  - Instagram (via `instagrapi`)
+  - YouTube (via `google-api-python-client`)
+  - TikTok (via `tiktok-uploader`)
+- **Profile Management:** Manage different visual identities, backgrounds, and settings directly via `config.yaml` or the GUI.
+- **Robust Session Handling:** Preserves authentication tokens to prevent bot detection and avoids login blocks.
 
 ---
 
 ## 📁 Project Structure
 
 ```
-Auto_instagram/
-├── reel_generator.py       # Core video composer (main script)
-├── instagram_uploader.py   # Instagram Graph API uploader module
-├── quotes.txt              # One motivational quote per line
-├── requirements.txt        # Python dependencies
-├── backgrounds/            # Place your .mp4 background clips here
-└── music/                  # Place your .mp3 music tracks here
+auto-instagram/
+├── bot_insta/
+│   ├── assets/              # Place videos, music, and fonts here
+│   ├── config/              # configuration (config.yaml) and session caches
+│   ├── exports/             # Default folder for generated Reels
+│   ├── src/                 # Source code (API modules, core engine, GUI)
+│   ├── main.py              # GUI Launcher
+│   └── requirements.txt     # Python dependencies
+└── README.md
 ```
 
 ---
 
-## ⚙️ Setup (Arch Linux)
+## ⚙️ Setup (Arch Linux / General Linux)
 
 ### 1. Install system packages
 
 ```bash
-sudo pacman -S python python-pip ffmpeg ttf-dejavu
+sudo pacman -S python python-pip ffmpeg
 ```
 
 > `ffmpeg` is required by MoviePy for video encoding.
-> `ttf-dejavu` provides the **DejaVuSans-Bold** font used for text overlays.
 
 ### 2. Create and activate a virtual environment
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+python -m venv bot_insta/venv
+source bot_insta/venv/bin/activate
 ```
 
 ### 3. Install Python dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -r bot_insta/requirements.txt
 ```
 
-### 4. Add your assets
-
-| Directory       | What to put there             |
-|-----------------|-------------------------------|
-| `./backgrounds/`| Abstract/colorful `.mp4` clips |
-| `./music/`      | Instrumental `.mp3` tracks    |
-| `quotes.txt`    | One quote per line            |
+### 4. Provide your Assets
+Add some testing files so the bot has something to select from:
+- `bot_insta/assets/backgrounds/`: Put vertical `.mp4`, `.mov` clips.
+- `bot_insta/assets/music/`: Put `.mp3` tracks.
+- `bot_insta/config/quotes.txt`: Put a quote on each line.
 
 ---
 
-## 🚀 Usage
+## 🎮 How to Use (Graphical Interface)
 
-### Generate the daily reel
+The whole core logic can be operated from a simple CustomTkinter Application.
+
+### 1. Configure the Upload Variables (Instagram)
+
+To keep your credentials private, the application expects them from your terminal session. If you intend to upload to instagram, export your username and password:
 
 ```bash
-python reel_generator.py
+export INSTAGRAM_USERNAME="your_username"
+export INSTAGRAM_PASSWORD="your_password"
 ```
 
-Output: `daily_reel.mp4` (1080 × 1920, 10 s, H.264 + AAC)
+*(Note: Once the first successful login happens, a `session.json` profile is preserved inside `bot_insta/config/` and these credentials might be skipped next time.)*
 
-### Upload to Instagram (optional)
+### 2. Launch the Application
 
-1. Obtain a **long-lived User Access Token** and your **Instagram Business Account ID**
-   from the [Meta for Developers](https://developers.facebook.com/) portal.
-
-2. Open `instagram_uploader.py` and replace the placeholders:
-   ```python
-   ACCESS_TOKEN = "YOUR_LONG_LIVED_ACCESS_TOKEN_HERE"
-   IG_USER_ID   = "YOUR_INSTAGRAM_BUSINESS_ACCOUNT_ID"
-   ```
-
-3. Host `daily_reel.mp4` at a publicly accessible HTTPS URL
-   (e.g. AWS S3, Cloudinary, Google Cloud Storage).
-
-4. Call the uploader:
-   ```python
-   from instagram_uploader import upload_reel
-
-   media_id = upload_reel(
-       public_video_url="https://your-cdn.example.com/daily_reel.mp4",
-       caption="✨ Daily motivation #motivation #mindset",
-   )
-   print(f"Published Reel ID: {media_id}")
-   ```
-
----
-
-## ⏰ Automate with Cron (daily at 09:00)
+Make sure your virtual environment is active, then launch the program:
 
 ```bash
-crontab -e
-# Add the following line:
-0 9 * * * cd /home/leo/Documents/proyects/Auto_instagram && .venv/bin/python reel_generator.py >> cron.log 2>&1
+python bot_insta/main.py
 ```
+
+### 3. Usage inside the app
+- Use the **Settings/Spec Editor View** on the right side to pick fonts, colors, stroke width, and audio volume. 
+- You can preview it live.
+- At the top left, select your publishing destination (`Local`, `Instagram`, `YouTube`, `TikTok`).
+- Hit **Generate!** Watch the queue box process it async, and check the logs.
 
 ---
 
-## 🎛️ Customisation
+## 🎛️ Configurations
 
-All key parameters live at the top of `reel_generator.py`:
-
-| Variable        | Default                  | Description                    |
-|-----------------|--------------------------|--------------------------------|
-| `TARGET_W/H`    | 1080 × 1920              | Output resolution              |
-| `REEL_DURATION` | 10 s                     | Video length                   |
-| `AUDIO_FADEOUT` | 2 s                      | Fade-out duration at the end   |
-| `FONT_PATH`     | DejaVuSans-Bold (Arch)   | Path to .ttf font              |
-| `FONT_SIZE`     | 72 px                    | Quote text size                |
-| `WRAP_WIDTH`    | 28 chars                 | Characters per line (wrapping) |
+All GUI settings are serialized into `bot_insta/config/config.yaml`. Profiles allow you to keep multiple environments (for example, one for *Gym Motivation* and another for *Business Success*).
 
 ---
 
 ## 📋 Requirements
-
-- Python ≥ 3.11
-- MoviePy ≥ 2.0
+- Python ≥ 3.10
+- MoviePy == 1.0.3
 - FFmpeg (system)
-- DejaVu fonts (`ttf-dejavu` package)
+- instagrapi (For Instagram module)
