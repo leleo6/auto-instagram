@@ -13,7 +13,7 @@ from tiktok_uploader.upload import upload_video
 
 log = logging.getLogger(__name__)
 
-def upload_tiktok(video_path: Path | str, caption: str = "") -> str:
+def upload_tiktok(video_path: Path | str, caption: str = "", cookies_path_override: Path | str = None) -> str:
     """
     Uploads a video to TikTok using browser cookies.
     Raises FileNotFoundError if cookies.txt is missing.
@@ -23,7 +23,7 @@ def upload_tiktok(video_path: Path | str, caption: str = "") -> str:
     if not video_path.exists():
         raise FileNotFoundError(f"El video no existe: {video_path}")
 
-    cookies_path = config.get_path("tiktok_cookies")
+    cookies_path = Path(cookies_path_override) if cookies_path_override else config.get_path("tiktok_cookies")
     if not cookies_path.exists():
         log.error("Falta %s. Usa una extensión para exportar cookies de tiktok.com", cookies_path.name)
         raise FileNotFoundError(f"Falta el archivo de cookies de TikTok en: {cookies_path}")

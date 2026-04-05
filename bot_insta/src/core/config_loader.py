@@ -6,9 +6,13 @@ Central YAML-based configuration manager with profile CRUD support.
 
 import yaml
 from pathlib import Path
+from dotenv import load_dotenv
 
 _HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = _HERE.parent.parent.parent  # auto-instagram/
+
+# Load environment variables from .env
+load_dotenv(PROJECT_ROOT / ".env")
 
 CONFIG_FILE = PROJECT_ROOT / "bot_insta" / "config" / "config.yaml"
 

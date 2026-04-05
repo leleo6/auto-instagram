@@ -19,37 +19,37 @@ log = logging.getLogger(__name__)
 
 SESSION_FILE = config.get_path("session_file")
 
-def _build_client() -> Client:
+def _build_client(session_file: Path) -> Client:
     cl = Client()
-    if SESSION_FILE.exists():
+    if session_file.exists():
         try:
-            cl.load_settings(SESSION_FILE)
-            log.info("📂 Sesión previa cargada desde %s", SESSION_FILE)
+            cl.load_settings(session_file)
+            log.info("📂 Sesión previa cargada desde %s", session_file)
         except Exception as e:
             log.warning("⚠️ Error cargando sesión (%s), se pedirá nuevo login...", e)
-            SESSION_FILE.unlink(missing_ok=True)
+            session_file.unlink(missing_ok=True)
     return cl
 
-def _login(cl: Client, username: str, password: str) -> None:
+def _login(cl: Client, username: str, password: str, session_file: Path) -> None:
     try:
         cl.login(username, password)
         log.info("✅ Login exitoso como @%s", username)
     except Exception as exc:
         log.warning("⚠️  Login con sesión guardada falló (%s). Reintentando fresh…", exc)
-        if SESSION_FILE.exists():
-            SESSION_FILE.unlink()
+        if session_file.exists():
+            session_file.unlink()
         cl = Client()
         cl.login(username, password)
         log.info("✅ Login fresh exitoso como @%s", username)
-    cl.dump_settings(SESSION_FILE)
-    log.info("💾 Sesión guardada en %s", SESSION_FILE)
+    cl.dump_settings(session_file)
+    log.info("💾 Sesión guardada en %s", session_file)
 
 def _human_delay(min_s: float = 2.0, max_s: float = 6.0) -> None:
     t = random.uniform(min_s, max_s)
     log.debug("⏳ Esperando %.1fs…", t)
     time.sleep(t)
 
-def upload_reel(video_path: Path | str, caption: str = "", username: str = None, password: str = None) -> str:
+def upload_reel(video_path: Path | str, caption: str = "", username: str = None, password: str = None, session_override: str = None) -> str:
     video_path = Path(video_path)
     if not video_path.exists():
         raise FileNotFoundError(f"El video no existe: {video_path}")
@@ -62,12 +62,14 @@ def upload_reel(video_path: Path | str, caption: str = "", username: str = None,
     if not username or not password:
         raise ValueError("Missing INSTAGRAM credentials in env/parameters.")
 
+    sess_path = Path(session_override) if session_override else SESSION_FILE
+
     log.info("══════════════════════════════════════════")
     log.info("  Instagram API Uploader")
     log.info("══════════════════════════════════════════")
 
-    cl = _build_client()
-    _login(cl, username, password)
+    cl = _build_client(sess_path)
+    _login(cl, username, password, sess_path)
     _human_delay(3, 8)
 
     log.info("📤 Subiendo Reel: %s", video_path.name)
@@ -75,9 +77,9 @@ def upload_reel(video_path: Path | str, caption: str = "", username: str = None,
         media = cl.clip_upload(path=video_path, caption=caption)
     except (LoginRequired, ClientLoginRequired):
         log.warning("🔄 Sesión expirada. Re-autenticando…")
-        SESSION_FILE.unlink(missing_ok=True)
+        if sess_path.exists(): sess_path.unlink()
         cl = Client()
-        _login(cl, username, password)
+        _login(cl, username, password, sess_path)
         _human_delay(3, 6)
         media = cl.clip_upload(path=video_path, caption=caption)
 

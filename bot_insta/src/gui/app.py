@@ -23,11 +23,10 @@ from bot_insta.src.api.instagram import upload_reel
 from bot_insta.src.api.tiktok import upload_tiktok
 from bot_insta.src.api.youtube import upload_youtube
 from bot_insta.src.core.config_loader import config
+from bot_insta.src.core.account_manager import acc_manager
 
 ctk.set_appearance_mode(THEME_MODE)
 ctk.set_default_color_theme("green")
-
-PLATFORMS = ["Local (no upload)", "Instagram", "YouTube", "TikTok"]
 
 # ── Discover system fonts ─────────────────────────────────────────────────────
 def _scan_fonts() -> dict[str, str]:
@@ -47,20 +46,59 @@ def _scan_fonts() -> dict[str, str]:
 
 SYSTEM_FONTS = _scan_fonts()
 
+def create_platform_icon(platform: str) -> ctk.CTkImage:
+    img = PIL.Image.new("RGBA", (24, 24), (0,0,0,0))
+    d = PIL.ImageDraw.Draw(img)
+    if platform == "Instagram":
+        d.rounded_rectangle([3, 3, 21, 21], radius=6, outline="#E1306C", width=2)
+        d.ellipse([8, 8, 16, 16], outline="#E1306C", width=2)
+        d.ellipse([17, 5, 19, 7], fill="#E1306C")
+    elif platform == "TikTok":
+        d.line([14, 18, 14, 8], fill="#25F4EE", width=2)
+        d.line([14, 8, 18, 8], fill="#FE2C55", width=2)
+        d.ellipse([8, 14, 14, 20], fill="#25F4EE")
+    elif platform == "YouTube":
+        d.rounded_rectangle([3, 7, 21, 17], radius=3, fill="#FF0000")
+        d.polygon([(10, 9), (10, 15), (15, 12)], fill="white")
+    else:
+        d.ellipse([4, 4, 20, 20], outline="#aaaaaa", width=2)
+    return ctk.CTkImage(light_image=img, dark_image=img, size=(18, 18))
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MINIMAL DROPDOWN POPUP
 # ─────────────────────────────────────────────────────────────────────────────
 class DropdownButton(ctk.CTkFrame):
-    def __init__(self, parent, label, options, on_select, width=170, **kw):
+    def __init__(self, parent, selected_id, options, on_select, width=170, **kw):
         super().__init__(parent, fg_color="transparent", **kw)
         self.options, self.on_select, self._popup = options, on_select, None
-        self.btn = ctk.CTkButton(self, text=f"{label}  ▾", width=width, font=FONT_SMALL,
+        self.btn = ctk.CTkButton(self, text="▾", width=width, font=FONT_SMALL,
                                   fg_color="#23262e", hover_color="#2e323c", anchor="w",
                                   command=self._toggle)
         self.btn.pack()
+        self.update_options(options, selected_id)
 
-    def update_options(self, opts): self.options = opts
-    def set_label(self, t): self.btn.configure(text=f"{t}  ▾")
+    def update_options(self, opts, current_id=None): 
+        self.options = opts
+        if current_id is not None:
+            for o in opts:
+                if type(o) is dict and o["id"] == current_id:
+                    self.set_label(o)
+                    return
+            if opts and type(opts[0]) is dict:
+                self.set_label(opts[0])
+            elif opts and type(opts[0]) is str:
+                self.set_label(opts[0])
+        elif opts and type(opts[0]) is str:
+            self.set_label(opts[0])
+        elif opts and type(opts[0]) is dict:
+            self.set_label(opts[0])
+
+    def set_label(self, o):
+        if type(o) is dict:
+            icon = create_platform_icon(o.get("platform", "Local"))
+            self.btn.configure(text=f" {o['label']}  ▾", image=icon)
+        else:
+            self.btn.configure(text=f"{o}  ▾", image="")
 
     def _toggle(self):
         if self._popup and self._popup.winfo_exists():
@@ -74,30 +112,38 @@ class DropdownButton(ctk.CTkFrame):
         self.btn.update_idletasks()
         x = self.btn.winfo_rootx()
         y = self.btn.winfo_rooty() + self.btn.winfo_height() + 2
-        max_h = min(len(self.options) * 32, 320)
         p.geometry(f"+{x}+{y}")
 
-        # Scrollable list
-        frame = tk.Frame(p, bg="#23262e")
-        frame.pack()
-        sb = tk.Scrollbar(frame, orient="vertical", bg="#23262e", troughcolor="#1a1d24", width=8)
-        lb = tk.Listbox(frame, yscrollcommand=sb.set, bg="#23262e", fg="#d0d0d0",
-                        selectbackground=ACCENT_TEAL, selectforeground="white",
-                        activestyle="none", relief="flat", font=("Inter", 12),
-                        height=min(len(self.options), 10), width=28, borderwidth=0,
-                        highlightthickness=0)
-        for opt in self.options: lb.insert("end", opt)
-        if len(self.options) > 10: sb.pack(side="right", fill="y")
-        lb.pack(side="left")
-        sb.configure(command=lb.yview)
+        max_h = min(len(self.options) * 36, 250)
+        frame = ctk.CTkScrollableFrame(p, fg_color="#23262e", height=max_h, width=max(self.btn.winfo_width(), 170))
+        frame.pack(fill="both", expand=True)
+        frame._scrollbar.configure(width=10)
+        
+        for opt in self.options:
+            if type(opt) is dict:
+                plat = opt.get("platform", "Local")
+                label = opt.get("label", "Unknown")
+            else:
+                plat = "Local (no upload)"
+                if "Instagram" in opt: plat = "Instagram"
+                elif "TikTok" in opt: plat = "TikTok"
+                elif "YouTube" in opt: plat = "YouTube"
+                label = opt
+                
+            icon = create_platform_icon(plat)
+            b = ctk.CTkButton(frame, text=f" {label}", font=("Inter", 12), fg_color="transparent", 
+                              hover_color=ACCENT_TEAL, anchor="w", image=icon, height=28,
+                              command=lambda o=opt: self._select(o, p))
+            b.pack(fill="x", pady=1)
 
-        lb.bind("<<ListboxSelect>>", lambda e: self._select(lb.get(lb.curselection()[0]), p) if lb.curselection() else None)
         p.bind("<FocusOut>", lambda e: p.destroy())
         p.focus_set()
         self._popup = p
 
     def _select(self, opt, popup):
-        popup.destroy(); self._popup = None; self.on_select(opt)
+        popup.destroy(); self._popup = None
+        self.set_label(opt)
+        self.on_select(opt)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -124,9 +170,10 @@ class DashboardView(ctk.CTkFrame):
         ctk.CTkFrame(ctrl, width=1, height=24, fg_color="#333").pack(side="left", padx=4)
 
         ctk.CTkLabel(ctrl, text="Publish to", font=FONT_SMALL, text_color="#555").pack(side="left", padx=(12,3))
-        self.selected_platform = PLATFORMS[0]
-        self.dd_platform = DropdownButton(ctrl, self.selected_platform, PLATFORMS,
-                                           self._on_platform, width=170)
+        self.platform_options = acc_manager.fetch_options_for_dropdown()
+        self.selected_platform_opt = self.platform_options[0] if self.platform_options else {"id":"local","label":"Local (no upload)","platform":"Local"}
+        self.dd_platform = DropdownButton(ctrl, self.selected_platform_opt["id"], self.platform_options,
+                                           self._on_platform, width=220)
         self.dd_platform.pack(side="left", padx=(0,12))
 
         ctk.CTkFrame(ctrl, width=1, height=24, fg_color="#333").pack(side="left", padx=4)
@@ -152,15 +199,15 @@ class DashboardView(ctk.CTkFrame):
 
     def refresh_profiles(self):
         config.reload()
-        self.dd_profile.update_options(config.list_profiles())
+        self.dd_profile.update_options(config.list_profiles(), self.selected_profile.get())
+        self.platform_options = acc_manager.fetch_options_for_dropdown()
+        self.dd_platform.update_options(self.platform_options, getattr(self, "selected_platform_opt", {}).get("id"))
 
     def _on_profile(self, name):
         self.selected_profile.set(name)
-        self.dd_profile.set_label(name)
 
     def _on_platform(self, p):
-        self.selected_platform = p
-        self.dd_platform.set_label(p)
+        self.selected_platform_opt = p
 
     def _queue(self):
         if self._job_count == 0 and self._hint.winfo_exists():
@@ -172,7 +219,7 @@ class DashboardView(ctk.CTkFrame):
 
         job_id = self._job_count
         profile = self.selected_profile.get()
-        platform = self.selected_platform
+        opt_choice = self.selected_platform_opt if type(self.selected_platform_opt) is dict else {"label": "Local (no upload)", "platform": "Local"}
 
         # ── Job card ──────────────────────────────────────────────────────────
         card = ctk.CTkFrame(self.jobs_wrap, fg_color="#23262e", corner_radius=6)
@@ -186,7 +233,7 @@ class DashboardView(ctk.CTkFrame):
         body.grid(row=0, column=1, sticky="ew", pady=8)
         body.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(body, text=f"#{job_id}  ·  {profile}  →  {platform}",
+        ctk.CTkLabel(body, text=f"#{job_id}  ·  {profile}  →  {opt_choice['label']}",
                      font=FONT_MAIN, text_color="#c0c0c0").grid(row=0, column=0, sticky="w")
         status = ctk.CTkLabel(body, text="Queued…", font=FONT_SMALL, text_color="#555")
         status.grid(row=1, column=0, sticky="w")
@@ -200,6 +247,18 @@ class DashboardView(ctk.CTkFrame):
         def run():
             orig = config.get_active_profile()
             config._config["active_profile"] = profile
+            
+            # Parse dynamic platform selection
+            target_platform = "Local"
+            acc_id = None
+            creds = {}
+            if type(self.selected_platform_opt) is dict and self.selected_platform_opt.get("id") != "local":
+                acc_id = self.selected_platform_opt["id"]
+                acc = acc_manager.get_account(acc_id)
+                if acc:
+                    target_platform = acc.get("platform", "Local")
+                    creds = acc.get("credentials", {})
+
             try:
                 ui("Generating…", "#888", ACCENT_GOLD)
                 reel_path = create_reel()
@@ -217,23 +276,36 @@ class DashboardView(ctk.CTkFrame):
                     b.pack(anchor="w")
                 self.after(0, _link)
 
-                if platform == "Instagram":
+                if target_platform == "Instagram":
                     ui("Uploading to Instagram…", "#888")
-                    mid = upload_reel(reel_path, caption=caption)
-                    ui(f"Uploaded  · ID {mid}", "#4dcf9a", "#00c070")
-                elif platform == "YouTube":
+                    try:
+                        session_file = str(PROJECT_ROOT / "bot_insta" / "config" / f"session_{acc_id}.json") if acc_id else None
+                        mid = upload_reel(reel_path, caption=caption, username=creds.get("username"), password=creds.get("password"), session_override=session_file)
+                        ui(f"Uploaded  · ID {mid}", "#4dcf9a", "#00c070")
+                        acc_manager.update_status(acc_id, "Active")
+                    except Exception as e:
+                        acc_manager.update_status(acc_id, "Error")
+                        raise e
+                elif target_platform == "YouTube":
                     ui("Uploading to YouTube…", "#888")
                     priv = config._config.get("profiles", {}).get(profile, {}).get("youtube_privacy", "unlisted")
-                    vid_id = upload_youtube(reel_path, caption=caption, privacy=priv)
+                    vid_id = upload_youtube(reel_path, caption=caption, privacy=priv, client_secrets_override=creds.get("youtube_client_secrets"))
                     ui(f"Uploaded  · ID {vid_id}", "#4dcf9a", "#00c070")
-                elif platform == "TikTok":
+                    acc_manager.update_status(acc_id, "Active")
+                elif target_platform == "TikTok":
                     ui("Uploading to TikTok…", "#888")
-                    upload_tiktok(reel_path, caption=caption)
+                    upload_tiktok(reel_path, caption=caption, cookies_path_override=creds.get("tiktok_session_id"))
                     ui(f"Uploaded to TikTok", "#4dcf9a", "#00c070")
+                    acc_manager.update_status(acc_id, "Active")
                 # "Local" → nothing extra
+                
+                # Refresh accounts view implicitly if on UI
+                self.after(0, lambda: self.app.accounts.refresh_list())
+                
             except Exception as e:
                 ui(f"Error: {e}", "#e05555", "#e05555")
                 import traceback; traceback.print_exc()
+                self.after(0, lambda: self.app.accounts.refresh_list())
             finally:
                 config._config["active_profile"] = orig
                 self._active -= 1
@@ -872,6 +944,187 @@ class SpecEditorView(ctk.CTkFrame):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ACCOUNTS CONFIGURATION VIEW
+# ─────────────────────────────────────────────────────────────────────────────
+class AccountsView(ctk.CTkFrame):
+    def __init__(self, parent, app):
+        super().__init__(parent, fg_color="transparent")
+        self.app = app
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        
+        ctk.CTkLabel(header, text="Linked Accounts", font=FONT_MAIN, text_color="#c0c0c0").pack(side="left", padx=10)
+        
+        btn_add = ctk.CTkButton(header, text="+ Add Account", font=FONT_SMALL, width=120,
+                                fg_color=ACCENT_TEAL, hover_color="#006060",
+                                command=self.open_add_modal)
+        btn_add.pack(side="right", padx=10)
+
+        self.list_wrap = ctk.CTkScrollableFrame(self, fg_color="#1c1f27", corner_radius=8)
+        self.list_wrap.grid(row=1, column=0, sticky="nsew")
+        self.list_wrap.grid_columnconfigure(0, weight=1)
+
+        self.refresh_list()
+
+    def refresh_list(self):
+        for widget in self.list_wrap.winfo_children():
+            widget.destroy()
+
+        accounts = acc_manager.list_accounts()
+        if not accounts:
+            ctk.CTkLabel(self.list_wrap, text="No accounts linked. Add one to publish.",
+                         font=FONT_SMALL, text_color="#555").pack(pady=40)
+            return
+
+        for acc in accounts:
+            card = ctk.CTkFrame(self.list_wrap, fg_color="#23262e", corner_radius=6)
+            card.pack(fill="x", padx=10, pady=5)
+            
+            alias = acc.get('name', 'Account')
+            icon_img = create_platform_icon(acc['platform'])
+            info = f"  {alias}"
+
+            ctk.CTkLabel(card, text=info, image=icon_img, compound="left", padx=8, font=FONT_MAIN, text_color="white").pack(side="left", padx=15, pady=15)
+            
+            # Status badge
+            status = acc.get("status", "Unknown")
+            status_color = "#888"
+            if status == "Active": status_color = "#4dcf9a"
+            elif status == "Error": status_color = "#e05555"
+
+            lbl_status = ctk.CTkLabel(card, text=f"• {status}", font=FONT_SMALL, text_color=status_color)
+            lbl_status.pack(side="left", padx=15)
+
+            # Actions
+            btn_del = ctk.CTkButton(card, text="Delete", font=FONT_SMALL, width=60, fg_color="#e05555", hover_color="#803030", command=lambda a=acc['id']: self.delete_acc(a))
+            btn_del.pack(side="right", padx=10)
+
+            btn_verify = ctk.CTkButton(card, text="Verify", font=FONT_SMALL, width=60, fg_color="#2e323c", hover_color="#444", command=lambda a=acc['id']: self.verify_acc(a))
+            btn_verify.pack(side="right", padx=10)
+
+    def verify_acc(self, acc_id):
+        acc = acc_manager.get_account(acc_id)
+        if not acc: return
+        
+        acc_manager.update_status(acc_id, "Verifying...")
+        self.refresh_list()
+        
+        def run_verification():
+            try:
+                creds = acc.get("credentials", {})
+                platform = acc.get("platform")
+                if platform == "Instagram":
+                    from instagrapi import Client
+                    cl = Client()
+                    # Real login attempt, throws exception if unauthorized
+                    session_path = PROJECT_ROOT / "bot_insta" / "config" / f"session_{acc_id}.json"
+                    if session_path.exists():
+                        try: cl.load_settings(session_path)
+                        except: pass
+                    cl.login(creds.get("username", ""), creds.get("password", ""))
+                    cl.dump_settings(session_path)
+                    acc_manager.update_status(acc_id, "Active")
+                elif platform == "YouTube":
+                    import json, os
+                    path = creds.get("youtube_client_secrets", "")
+                    if os.path.exists(path) and path.endswith('.json'):
+                        with open(path, 'r') as f:
+                            json.load(f)
+                        acc_manager.update_status(acc_id, "Active")
+                    else:
+                        raise ValueError("Invalid client_secrets path")
+                elif platform == "TikTok":
+                    path = creds.get("tiktok_session_id", "")
+                    if len(path) > 7:
+                        acc_manager.update_status(acc_id, "Active")
+                    else:
+                        raise ValueError("Invalid Session ID / cookie path")
+            except Exception as e:
+                import logging
+                logging.error(f"Verify Error for {acc_id}: {e}")
+                acc_manager.update_status(acc_id, "Error")
+            finally:
+                self.after(0, self.refresh_list)
+                
+        import threading
+        threading.Thread(target=run_verification, daemon=True).start()
+
+    def delete_acc(self, acc_id):
+        acc_manager.delete_account(acc_id)
+        self.app.dashboard.refresh_profiles()
+        self.refresh_list()
+
+    def open_add_modal(self):
+        AddAccountModal(self)
+
+class AddAccountModal(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Add Account")
+        self.geometry("400x380")
+        self.resizable(False, False)
+        self.configure(fg_color="#1c1f27")
+        self.transient(parent.app)
+        self.after(150, self.grab_set)
+
+        self.parent_view = parent
+
+        ctk.CTkLabel(self, text="Account Name (Alias):", font=FONT_SMALL, text_color="#c0c0c0").pack(pady=(20, 5))
+        self.name_entry = ctk.CTkEntry(self, width=250, fg_color="#23262e", border_color="#333", text_color="white")
+        self.name_entry.pack(pady=5)
+
+        self.platform_var = ctk.StringVar(value="Instagram")
+        ctk.CTkLabel(self, text="Platform:", font=FONT_MAIN, text_color="#c0c0c0").pack(pady=(15, 5))
+        
+        self.opt_platform = ctk.CTkOptionMenu(self, values=["Instagram", "TikTok", "YouTube"], 
+                                              variable=self.platform_var, command=self.on_platform_change)
+        self.opt_platform.pack(pady=5)
+
+        self.form_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.form_frame.pack(fill="both", expand=True, padx=20, pady=10)
+
+        self.entries = {}
+        self.on_platform_change("Instagram")
+
+        ctk.CTkButton(self, text="Save", font=FONT_MAIN, fg_color=ACCENT_TEAL, hover_color="#006060", command=self.save).pack(pady=20)
+
+    def on_platform_change(self, choice):
+        for widget in self.form_frame.winfo_children():
+            widget.destroy()
+        self.entries.clear()
+
+        if choice == "Instagram":
+            ctk.CTkLabel(self.form_frame, text="Username:", font=FONT_SMALL, text_color="#888").pack(anchor="w")
+            e1 = ctk.CTkEntry(self.form_frame, width=250, fg_color="#23262e", border_color="#333", text_color="white")
+            e1.pack(pady=5)
+            ctk.CTkLabel(self.form_frame, text="Password:", font=FONT_SMALL, text_color="#888").pack(anchor="w")
+            e2 = ctk.CTkEntry(self.form_frame, width=250, show="*", fg_color="#23262e", border_color="#333", text_color="white")
+            e2.pack(pady=5)
+            self.entries = {"username": e1, "password": e2}
+        elif choice == "TikTok":
+            ctk.CTkLabel(self.form_frame, text="Session ID string / cookie.txt path:", font=FONT_SMALL, text_color="#888").pack(anchor="w")
+            e1 = ctk.CTkEntry(self.form_frame, width=250, fg_color="#23262e", border_color="#333", text_color="white")
+            e1.pack(pady=5)
+            self.entries = {"tiktok_session_id": e1}
+        elif choice == "YouTube":
+            ctk.CTkLabel(self.form_frame, text="Path to client_secrets.json:", font=FONT_SMALL, text_color="#888").pack(anchor="w")
+            e1 = ctk.CTkEntry(self.form_frame, width=250, fg_color="#23262e", border_color="#333", text_color="white")
+            e1.pack(pady=5)
+            self.entries = {"youtube_client_secrets": e1}
+
+    def save(self):
+        alias_name = self.name_entry.get().strip() or "My Account"
+        platform = self.platform_var.get()
+        creds = {k: v.get() for k, v in self.entries.items()}
+        acc_manager.add_account(alias_name, platform, creds)
+        self.parent_view.refresh_list()
+        self.parent_view.app.dashboard.refresh_profiles()
+        self.destroy()
+
+# ─────────────────────────────────────────────────────────────────────────────
 # MAIN APP
 # ─────────────────────────────────────────────────────────────────────────────
 class BotApp(ctk.CTk):
@@ -905,6 +1158,11 @@ class BotApp(ctk.CTk):
                                     command=lambda: self._show("editor"))
         self.btn_e.pack(side="left")
 
+        self.btn_a = ctk.CTkButton(nav, text="Accounts", font=FONT_SMALL, width=100,
+                                    fg_color="#23262e", hover_color="#2e323c",
+                                    command=lambda: self._show("accounts"))
+        self.btn_a.pack(side="left", padx=(6,0))
+
         # ── Views ─────────────────────────────────────────────────────────────
         self.wrap = ctk.CTkFrame(self, fg_color="transparent")
         self.wrap.grid(row=1, column=0, sticky="nsew", padx=14, pady=14)
@@ -913,16 +1171,25 @@ class BotApp(ctk.CTk):
 
         self.dashboard = DashboardView(self.wrap, self)
         self.editor    = SpecEditorView(self.wrap, self)
+        self.accounts  = AccountsView(self.wrap, self)
         self._show("dashboard")
 
     def _show(self, view):
         self.dashboard.grid_forget()
         self.editor.grid_forget()
+        self.accounts.grid_forget()
+        
+        # Reset buttons to default color
+        self.btn_d.configure(fg_color="#23262e")
+        self.btn_e.configure(fg_color="#23262e")
+        self.btn_a.configure(fg_color="#23262e")
+
         if view == "dashboard":
             self.dashboard.grid(row=0, column=0, sticky="nsew")
             self.btn_d.configure(fg_color=ACCENT_TEAL)
-            self.btn_e.configure(fg_color="#23262e")
-        else:
+        elif view == "editor":
             self.editor.grid(row=0, column=0, sticky="nsew")
-            self.btn_d.configure(fg_color="#23262e")
             self.btn_e.configure(fg_color=ACCENT_TEAL)
+        elif view == "accounts":
+            self.accounts.grid(row=0, column=0, sticky="nsew")
+            self.btn_a.configure(fg_color=ACCENT_TEAL)

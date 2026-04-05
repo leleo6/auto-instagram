@@ -20,11 +20,11 @@ log = logging.getLogger(__name__)
 
 SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
 
-def get_youtube_service():
+def get_youtube_service(client_secrets_override: str = None, token_override: str = None):
     """Authenticates using client_secrets and returns a YouTube resource."""
     creds = None
-    token_path = config.get_path("youtube_token")
-    client_secrets_path = config.get_path("youtube_client_secrets")
+    token_path = Path(token_override) if token_override else config.get_path("youtube_token")
+    client_secrets_path = Path(client_secrets_override) if client_secrets_override else config.get_path("youtube_client_secrets")
 
     if token_path.exists():
         creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
@@ -50,7 +50,7 @@ def get_youtube_service():
     return build('youtube', 'v3', credentials=creds)
 
 
-def upload_youtube(video_path: Path | str, caption: str = "", privacy: str = "unlisted") -> str:
+def upload_youtube(video_path: Path | str, caption: str = "", privacy: str = "unlisted", client_secrets_override: str = None, token_override: str = None) -> str:
     """
     Subida usando la API de YouTube. Se recomienda enviar videos #Shorts (verticales, <60s).
     Retorna el VideoId de YouTube.
@@ -69,7 +69,7 @@ def upload_youtube(video_path: Path | str, caption: str = "", privacy: str = "un
     log.info("  YouTube (Shorts) API Uploader")
     log.info("══════════════════════════════════════════")
 
-    youtube = get_youtube_service()
+    youtube = get_youtube_service(client_secrets_override, token_override)
 
     body = {
         'snippet': {
