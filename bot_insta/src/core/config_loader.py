@@ -4,9 +4,9 @@ config_loader.py
 Central YAML-based configuration manager with profile CRUD support.
 """
 
-import yaml
 from pathlib import Path
 from dotenv import load_dotenv
+from bot_insta.src.core.storage import IStorage, YamlStorage
 
 _HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = _HERE.parent.parent.parent  # auto-instagram/
@@ -18,15 +18,16 @@ CONFIG_FILE = PROJECT_ROOT / "bot_insta" / "config" / "config.yaml"
 
 
 class ConfigLoader:
-    def __init__(self, config_path: Path = CONFIG_FILE):
+    def __init__(self, config_path: Path = CONFIG_FILE, storage: IStorage = None):
         self.config_path = config_path
+        self.storage = storage or YamlStorage()
         self._config = self._load()
 
     def _load(self) -> dict:
-        if not self.config_path.exists():
+        data = self.storage.load(self.config_path)
+        if data is None:
             raise FileNotFoundError(f"Missing config file at {self.config_path}")
-        with open(self.config_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+            
             
         modified = False
         
@@ -53,8 +54,7 @@ class ConfigLoader:
                     }
         
         if modified:
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True)
+            self.storage.save(self.config_path, data)
                 
         return data
 
@@ -160,8 +160,7 @@ class ConfigLoader:
 
     # ── Persistence ────────────────────────────────────────────────────────────
     def save(self) -> None:
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(self._config, f, default_flow_style=False, allow_unicode=True)
+        self.storage.save(self.config_path, self._config)
 
     def reload(self) -> None:
         self._config = self._load()

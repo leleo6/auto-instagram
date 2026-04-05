@@ -14,6 +14,8 @@ from pathlib import Path
 from instagrapi import Client
 from instagrapi.exceptions import LoginRequired, ClientLoginRequired
 from bot_insta.src.core.config_loader import config
+from bot_insta.src.api.retries import with_retries
+from bot_insta.src.api.base import SocialUploader
 
 log = logging.getLogger(__name__)
 
@@ -49,40 +51,49 @@ def _human_delay(min_s: float = 2.0, max_s: float = 6.0) -> None:
     log.debug("⏳ Esperando %.1fs…", t)
     time.sleep(t)
 
-def upload_reel(video_path: Path | str, caption: str = "", username: str = None, password: str = None, session_override: str = None) -> str:
-    video_path = Path(video_path)
-    if not video_path.exists():
-        raise FileNotFoundError(f"El video no existe: {video_path}")
+class InstagramUploader(SocialUploader):
+    @with_retries(max_attempts=3, base_delay=10.0, exceptions=(Exception,))
+    def upload(self, video_path: Path | str, caption: str, credentials: dict, proxy: str = None, abort_event=None) -> str:
+        if abort_event and abort_event.is_set():
+            raise InterruptedError("Cancelled by user before uploading to Instagram")
+        
+        video_path = Path(video_path)
+        if not video_path.exists():
+            raise FileNotFoundError(f"El video no existe: {video_path}")
 
-    # Fallback to env variables if not explicitly provided
-    username = username or os.getenv("INSTAGRAM_USERNAME", "")
-    password = password or os.getenv("INSTAGRAM_PASSWORD", "")
-    caption = caption or config.get("instagram", "default_caption", "✨ Daily motivation 🚀 #motivation")
+        username = credentials.get("username") or os.getenv("INSTAGRAM_USERNAME", "")
+        password = credentials.get("password") or os.getenv("INSTAGRAM_PASSWORD", "")
+        session_override = credentials.get("session_override")
+        caption = caption or config.get("instagram", "default_caption", "✨ Daily motivation 🚀 #motivation")
 
-    if not username or not password:
-        raise ValueError("Missing INSTAGRAM credentials in env/parameters.")
+        if not username or not password:
+            raise ValueError("Missing INSTAGRAM credentials in env/parameters.")
 
-    sess_path = Path(session_override) if session_override else SESSION_FILE
+        sess_path = Path(session_override) if session_override else SESSION_FILE
 
-    log.info("══════════════════════════════════════════")
-    log.info("  Instagram API Uploader")
-    log.info("══════════════════════════════════════════")
+        log.info("══════════════════════════════════════════")
+        log.info("  Instagram API Uploader")
+        log.info("══════════════════════════════════════════")
 
-    cl = _build_client(sess_path)
-    _login(cl, username, password, sess_path)
-    _human_delay(3, 8)
+        cl = _build_client(sess_path)
+        if proxy:
+            log.info("🌐 Usando proxy: %s", proxy)
+            cl.set_proxy(proxy)
 
-    log.info("📤 Subiendo Reel: %s", video_path.name)
-    try:
-        media = cl.clip_upload(path=video_path, caption=caption)
-    except (LoginRequired, ClientLoginRequired):
-        log.warning("🔄 Sesión expirada. Re-autenticando…")
-        if sess_path.exists(): sess_path.unlink()
-        cl = Client()
         _login(cl, username, password, sess_path)
-        _human_delay(3, 6)
-        media = cl.clip_upload(path=video_path, caption=caption)
+        _human_delay(3, 8)
 
-    media_id = str(media.pk)
-    log.info("✅ Reel publicado. Media ID: %s", media_id)
-    return media_id
+        log.info("📤 Subiendo Reel: %s", video_path.name)
+        try:
+            media = cl.clip_upload(path=video_path, caption=caption)
+        except (LoginRequired, ClientLoginRequired):
+            log.warning("🔄 Sesión expirada. Re-autenticando…")
+            if sess_path.exists(): sess_path.unlink()
+            cl = Client()
+            _login(cl, username, password, sess_path)
+            _human_delay(3, 6)
+            media = cl.clip_upload(path=video_path, caption=caption)
+
+        media_id = str(media.pk)
+        log.info("✅ Reel publicado. Media ID: %s", media_id)
+        return media_id

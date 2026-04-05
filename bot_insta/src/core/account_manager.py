@@ -5,10 +5,11 @@ Handles multi-platform account linked storage and statuses.
 """
 
 import os
-import json
 import uuid
 import logging
 from pathlib import Path
+
+from bot_insta.src.core.storage import IStorage, JsonStorage
 
 _HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = _HERE.parent.parent.parent
@@ -17,38 +18,31 @@ ACCOUNTS_FILE = PROJECT_ROOT / "bot_insta" / "config" / "accounts.json"
 log = logging.getLogger(__name__)
 
 class AccountManager:
-    def __init__(self, filepath: Path = ACCOUNTS_FILE):
+    def __init__(self, filepath: Path = ACCOUNTS_FILE, storage: IStorage = None):
         self.filepath = filepath
+        self.storage = storage or JsonStorage()
         self.accounts = self._load()
 
     def _load(self) -> list[dict]:
-        if not self.filepath.exists():
+        data = self.storage.load(self.filepath)
+        if data is None:
             return []
-        try:
-            with open(self.filepath, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            log.error(f"Error loading accounts: {e}")
-            return []
+        return data
 
     def _save(self) -> None:
-        try:
-            self.filepath.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.filepath, "w", encoding="utf-8") as f:
-                json.dump(self.accounts, f, indent=4)
-        except Exception as e:
-            log.error(f"Error saving accounts: {e}")
+        self.storage.save(self.filepath, self.accounts)
 
     def list_accounts(self) -> list[dict]:
         return self.accounts
 
-    def add_account(self, name: str, platform: str, credentials: dict) -> dict:
+    def add_account(self, name: str, platform: str, credentials: dict, proxy: str = "") -> dict:
         acc = {
             "id": str(uuid.uuid4())[:8],
             "name": name,
             "platform": platform,
             "status": "Unknown",
-            "credentials": credentials
+            "credentials": credentials,
+            "proxy": proxy
         }
         self.accounts.append(acc)
         self._save()
@@ -57,6 +51,15 @@ class AccountManager:
     def delete_account(self, acc_id: str) -> None:
         self.accounts = [a for a in self.accounts if a["id"] != acc_id]
         self._save()
+
+    def update_account(self, acc_id: str, **kwargs) -> bool:
+        for a in self.accounts:
+            if a["id"] == acc_id:
+                for key, value in kwargs.items():
+                    a[key] = value
+                self._save()
+                return True
+        return False
 
     def update_status(self, acc_id: str, status: str) -> None:
         for a in self.accounts:

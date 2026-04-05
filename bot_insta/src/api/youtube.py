@@ -6,6 +6,7 @@ Requires a client_secrets.json from GCP.
 """
 
 import logging
+import os
 from pathlib import Path
 
 from googleapiclient.discovery import build
@@ -15,6 +16,8 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 from bot_insta.src.core.config_loader import config
+from bot_insta.src.api.retries import with_retries
+from bot_insta.src.api.base import SocialUploader
 
 log = logging.getLogger(__name__)
 
@@ -50,50 +53,66 @@ def get_youtube_service(client_secrets_override: str = None, token_override: str
     return build('youtube', 'v3', credentials=creds)
 
 
-def upload_youtube(video_path: Path | str, caption: str = "", privacy: str = "unlisted", client_secrets_override: str = None, token_override: str = None) -> str:
-    """
-    Subida usando la API de YouTube. Se recomienda enviar videos #Shorts (verticales, <60s).
-    Retorna el VideoId de YouTube.
-    """
-    video_path = Path(video_path)
-    if not video_path.exists():
-        raise FileNotFoundError(f"El video no existe: {video_path}")
+class YouTubeUploader(SocialUploader):
+    @with_retries(max_attempts=3, base_delay=10.0, exceptions=(Exception,))
+    def upload(self, video_path: Path | str, caption: str, credentials: dict, proxy: str = None) -> str:
+        """
+        Subida usando la API de YouTube. Se recomienda enviar videos #Shorts (verticales, <60s).
+        Retorna el VideoId de YouTube.
+        """
+        video_path = Path(video_path)
+        if not video_path.exists():
+            raise FileNotFoundError(f"El video no existe: {video_path}")
+            
+        client_secrets_override = credentials.get("youtube_client_secrets")
+        token_override = credentials.get("youtube_token")
+        privacy = credentials.get("privacy", "unlisted")
 
-    caption = caption or config.get("instagram", "default_caption", "✨ Daily motivation 🚀 #motivation")
-    # For YouTube shorts, titles are usually extracted from the first line or are shorter
-    title = caption.split('\n')[0][:95] if caption else f"Auto Upload {video_path.stem}"
-    if "#shorts" not in caption.lower():
-        caption += "\n#shorts"
+        caption = caption or config.get("instagram", "default_caption", "✨ Daily motivation 🚀 #motivation")
+        # For YouTube shorts, titles are usually extracted from the first line or are shorter
+        title = caption.split('\n')[0][:95] if caption else f"Auto Upload {video_path.stem}"
+        if "#shorts" not in caption.lower():
+            caption += "\n#shorts"
 
-    log.info("══════════════════════════════════════════")
-    log.info("  YouTube (Shorts) API Uploader")
-    log.info("══════════════════════════════════════════")
+        log.info("══════════════════════════════════════════")
+        log.info("  YouTube (Shorts) API Uploader")
+        log.info("══════════════════════════════════════════")
 
-    youtube = get_youtube_service(client_secrets_override, token_override)
+        if proxy:
+            log.info("🌐 Setting HTTP/HTTPS proxy environment variables for YouTube.")
+            os.environ["HTTP_PROXY"] = proxy
+            os.environ["HTTPS_PROXY"] = proxy
 
-    body = {
-        'snippet': {
-            'title': title,
-            'description': caption,
-            'categoryId': '22'  # People & Blogs
-        },
-        'status': {
-            'privacyStatus': privacy.lower(),
-            'selfDeclaredMadeForKids': False
-        }
-    }
+        try:
+            youtube = get_youtube_service(client_secrets_override, token_override)
 
-    media = MediaFileUpload(str(video_path), mimetype='video/mp4', resumable=True)
+            body = {
+                'snippet': {
+                    'title': title,
+                    'description': caption,
+                    'categoryId': '22'  # People & Blogs
+                },
+                'status': {
+                    'privacyStatus': privacy.lower(),
+                    'selfDeclaredMadeForKids': False
+                }
+            }
 
-    log.info("📤 Subiendo a YouTube (%s): %s", privacy, video_path.name)
-    
-    request = youtube.videos().insert(
-        part=",".join(body.keys()),
-        body=body,
-        media_body=media
-    )
+            media = MediaFileUpload(str(video_path), mimetype='video/mp4', resumable=True)
 
-    response = request.execute()
-    vid_id = response.get('id')
-    log.info("✅ YouTube upload OK. Video ID: %s", vid_id)
-    return vid_id
+            log.info("📤 Subiendo a YouTube (%s): %s", privacy, video_path.name)
+            
+            request = youtube.videos().insert(
+                part=",".join(body.keys()),
+                body=body,
+                media_body=media
+            )
+
+            response = request.execute()
+            vid_id = response.get('id')
+            log.info("✅ YouTube upload OK. Video ID: %s", vid_id)
+            return vid_id
+        finally:
+            if proxy:
+                os.environ.pop("HTTP_PROXY", None)
+                os.environ.pop("HTTPS_PROXY", None)

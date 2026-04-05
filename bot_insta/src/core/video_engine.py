@@ -11,6 +11,7 @@ import textwrap
 import logging
 import datetime
 from pathlib import Path
+from dataclasses import dataclass
 
 import PIL.Image
 if not hasattr(PIL.Image, 'ANTIALIAS'):
@@ -28,7 +29,19 @@ from moviepy.editor import (
 from moviepy.audio.fx.audio_fadeout import audio_fadeout
 from proglog import ProgressBarLogger
 
-from bot_insta.src.core.config_loader import config
+@dataclass
+class VideoContext:
+    bg_dir: Path
+    music_dir: Path
+    quotes_file: Path
+    output_dir: Path
+    target_w: int = 1080
+    target_h: int = 1920
+    fadeout: float = 2.0
+    volume: float = 1.0
+    duration: float = 10.0
+    text_cfg: dict = None
+    overlay_path: Path = None
 
 log = logging.getLogger(__name__)
 
@@ -162,54 +175,36 @@ def build_overlay(overlay_path: Path, duration: float, target_w: int, target_h: 
     return img.set_position((x, y)).set_duration(duration).set_opacity(0.8)
 
 
-def create_reel(progress_callback=None, abort_event=None) -> Path:
-    """Full pipeline orchestrator — reads active profile from config."""
+def create_reel(context: VideoContext, progress_callback=None, abort_event=None) -> Path:
+    """Full pipeline orchestrator — reads active profile from context."""
     log.info("═══ Iniciando generación del Reel ═══")
 
-    # ── Resolve config ──────────────────────────────────────────────────────
-    bg_dir      = config.get_path("backgrounds")
-    music_dir   = config.get_path("music")
-    quotes_file = config.get_path("quotes")
-
-    vid_cfg   = config.get_video_settings()
-    target_w  = vid_cfg.get("target_w", 1080)
-    target_h  = vid_cfg.get("target_h", 1920)
-    fadeout   = vid_cfg.get("audio_fadeout", 2)
-
-    text_cfg  = config.get_text_settings()
-    audio_cfg = config.get_audio_settings()
-    volume    = float(audio_cfg.get("volume", 1.0))
-
-    prof_data = config.get_active_profile_data()
-    duration  = prof_data.get("duration", vid_cfg.get("duration", 10))
-    overlay_name = prof_data.get("overlay_image", "")
+    text_cfg  = context.text_cfg or {}
 
     # ── Pick assets ─────────────────────────────────────────────────────────
-    bg_path    = pick_random_file(bg_dir,    (".mp4", ".mov", ".avi"))
-    music_path = pick_random_file(music_dir, (".mp3", ".wav", ".aac"))
-    quote      = load_random_quote(quotes_file)
+    bg_path    = pick_random_file(context.bg_dir,    (".mp4", ".mov", ".avi"))
+    music_path = pick_random_file(context.music_dir, (".mp3", ".wav", ".aac"))
+    quote      = load_random_quote(context.quotes_file)
 
     # ── Build clips ─────────────────────────────────────────────────────────
-    background = prepare_background(bg_path, duration, target_w, target_h)
-    audio      = prepare_audio(music_path, duration, fadeout, volume)
-    text       = build_text_overlay(quote, duration, text_cfg)
+    background = prepare_background(bg_path, context.duration, context.target_w, context.target_h)
+    audio      = prepare_audio(music_path, context.duration, context.fadeout, context.volume)
+    text       = build_text_overlay(quote, context.duration, text_cfg)
 
     layers = [background, text]
 
     # Optional overlay/watermark
-    if overlay_name:
-        overlay_path = config.get_path("overlays") / overlay_name
-        overlay_clip = build_overlay(overlay_path, duration, target_w, target_h)
+    if context.overlay_path:
+        overlay_clip = build_overlay(context.overlay_path, context.duration, context.target_w, context.target_h)
         if overlay_clip:
             layers.append(overlay_clip)
 
-    final = CompositeVideoClip(layers, size=(target_w, target_h)).set_audio(audio)
+    final = CompositeVideoClip(layers, size=(context.target_w, context.target_h)).set_audio(audio)
 
     # ── Export ──────────────────────────────────────────────────────────────
     today      = datetime.datetime.now().strftime("%Y-%m-%d-%H%M")
-    output_dir = config.get_path("output_dir")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    out_file   = output_dir / f"reel_{today}.mp4"
+    context.output_dir.mkdir(parents=True, exist_ok=True)
+    out_file   = context.output_dir / f"reel_{today}.mp4"
 
     log.info("Renderizando → %s", out_file)
     logger_obj = GUILogger(on_progress=progress_callback, abort_event=abort_event)
