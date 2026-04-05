@@ -1,4 +1,11 @@
 active_profile: default
+captions:
+  default:
+    description: test asjoaijsioajsijaoisioansiodnaoidnosand
+    hashtags: '#motivation #mindset #daily'
+  gym_motivation:
+    description: 💪 Gym motivation 🔥
+    hashtags: '#gym #fitness #grind'
 gui:
   accent_gold: '#FFD700'
   accent_teal: '#008080'
@@ -18,7 +25,6 @@ profiles:
     audio:
       volume: 1.0
     backgrounds_subfolder: ''
-    caption: '✨ Daily motivation 🚀 #motivation #mindset #daily'
     music_subfolder: ''
     overlay_image: ''
     quotes_file: bot_insta/config/quotes.txt
@@ -35,26 +41,6 @@ profiles:
       stroke_width: 0
       wrap_width: 30
     youtube_privacy: unlisted
-  gym_motivation:
-    audio:
-      volume: 0.8
-    backgrounds_subfolder: gym_videos
-    caption: '💪 Gym motivation 🔥 #gym #fitness #grind'
-    music_subfolder: phonk_music
-    overlay_image: ''
-    quotes_file: bot_insta/config/quotes_gym.txt
-    text:
-      color: '#FFD700'
-      fadein: 0.8
-      font_path: /usr/share/fonts/gnu-free/FreeSerifItalic.otf
-      font_size: 80
-      max_width: 900
-      position:
-      - center
-      - 600
-      stroke_color: black
-      stroke_width: 2
-      wrap_width: 25
 video:
   audio_fadeout: 2
   duration: 10

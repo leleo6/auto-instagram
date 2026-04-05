@@ -178,6 +178,15 @@ class DashboardView(ctk.CTkFrame):
 
         ctk.CTkFrame(ctrl, width=1, height=24, fg_color="#333").pack(side="left", padx=4)
 
+        ctk.CTkLabel(ctrl, text="Caption", font=FONT_SMALL, text_color="#555").pack(side="left", padx=(12,3))
+        self.caption_options = ["None", "Custom"] + config.list_captions()
+        self.selected_cap_opt = ctk.StringVar(value=self.caption_options[2] if len(self.caption_options)>2 else "None")
+        self.dd_cap = DropdownButton(ctrl, self.selected_cap_opt.get(), self.caption_options,
+                                      self._on_cap, width=180)
+        self.dd_cap.pack(side="left", padx=(0,12))
+
+        ctk.CTkFrame(ctrl, width=1, height=24, fg_color="#333").pack(side="left", padx=4)
+
         self.btn_gen = ctk.CTkButton(ctrl, text="Generate", font=FONT_MAIN, width=100,
                                       fg_color=ACCENT_TEAL, hover_color="#006060",
                                       command=self._queue)
@@ -202,6 +211,10 @@ class DashboardView(ctk.CTkFrame):
         self.dd_profile.update_options(config.list_profiles(), self.selected_profile.get())
         self.platform_options = acc_manager.fetch_options_for_dropdown()
         self.dd_platform.update_options(self.platform_options, getattr(self, "selected_platform_opt", {}).get("id"))
+        self.caption_options = ["None", "Custom"] + config.list_captions()
+        if self.selected_cap_opt.get() not in self.caption_options:
+            self.selected_cap_opt.set(self.caption_options[2] if len(self.caption_options)>2 else "None")
+        self.dd_cap.update_options(self.caption_options, self.selected_cap_opt.get())
 
     def _on_profile(self, name):
         self.selected_profile.set(name)
@@ -209,7 +222,20 @@ class DashboardView(ctk.CTkFrame):
     def _on_platform(self, p):
         self.selected_platform_opt = p
 
+    def _on_cap(self, p):
+        self.selected_cap_opt.set(p)
+
     def _queue(self):
+        # ── Handle Custom Caption Input Before Thread ──
+        cap_val = self.selected_cap_opt.get()
+        custom_desc = ""
+        custom_tags = ""
+        if cap_val == "Custom":
+            dialog = ctk.CTkInputDialog(text="Enter Description (Use \\n for newlines, '#' for tags):", title="Custom Caption")
+            res = dialog.get_input()
+            if res is None: return # User cancelled
+            custom_desc = res
+
         if self._job_count == 0 and self._hint.winfo_exists():
             self._hint.grid_forget()
 
@@ -220,29 +246,60 @@ class DashboardView(ctk.CTkFrame):
         job_id = self._job_count
         profile = self.selected_profile.get()
         opt_choice = self.selected_platform_opt if type(self.selected_platform_opt) is dict else {"label": "Local (no upload)", "platform": "Local"}
+        
+        # Capture caption configuration state at queue time
+        job_caption = ""
+        if cap_val == "Custom":
+            parts = custom_desc.split("#", 1)
+            d = parts[0].strip()
+            t = ("#" + parts[1].strip()) if len(parts) > 1 else ""
+            job_caption = f"{d}\n\n{t}".strip()
+        elif cap_val != "None":
+            data = config.get_caption_data(cap_val)
+            d = data.get("description", "").strip()
+            t = data.get("hashtags", "").strip()
+            job_caption = f"{d}\n\n{t}".strip()
 
         # ── Job card ──────────────────────────────────────────────────────────
-        card = ctk.CTkFrame(self.jobs_wrap, fg_color="#23262e", corner_radius=6)
+        card = ctk.CTkFrame(self.jobs_wrap, fg_color="#23262e", corner_radius=6, height=36)
         card.grid(row=job_id, column=0, sticky="ew", padx=8, pady=4)
-        card.grid_columnconfigure(1, weight=1)
+        card.pack_propagate(False)
 
-        dot = ctk.CTkLabel(card, text="●", font=("Inter", 14), text_color="#444", width=24)
-        dot.grid(row=0, column=0, padx=(12, 6), pady=10, sticky="n")
+        dot = ctk.CTkLabel(card, text="●", font=("Inter", 14), text_color="#444", width=20)
+        dot.pack(side="left", padx=(10, 5))
 
-        body = ctk.CTkFrame(card, fg_color="transparent")
-        body.grid(row=0, column=1, sticky="ew", pady=8)
-        body.grid_columnconfigure(0, weight=1)
+        title = ctk.CTkLabel(card, text=f"#{job_id}  ·  {profile}  →  {opt_choice['label']}",
+                             font=FONT_MAIN, text_color="#c0c0c0")
+        title.pack(side="left", padx=(0, 15))
 
-        ctk.CTkLabel(body, text=f"#{job_id}  ·  {profile}  →  {opt_choice['label']}",
-                     font=FONT_MAIN, text_color="#c0c0c0").grid(row=0, column=0, sticky="w")
-        status = ctk.CTkLabel(body, text="Queued…", font=FONT_SMALL, text_color="#555")
-        status.grid(row=1, column=0, sticky="w")
-        link_row = ctk.CTkFrame(body, fg_color="transparent")
-        link_row.grid(row=2, column=0, sticky="w")
+        status = ctk.CTkLabel(card, text="Queued…", font=FONT_SMALL, text_color="#555")
+        status.pack(side="left", padx=(0, 15))
 
-        def ui(msg, color="#666", dc=None):
+        link_row = ctk.CTkFrame(card, fg_color="transparent")
+        link_row.pack(side="left")
+
+        prog_frame = ctk.CTkFrame(card, fg_color="transparent")
+        prog_frame.pack(side="left", fill="x", expand=True, padx=(10, 20))
+
+        progress = ctk.CTkProgressBar(prog_frame, height=4, progress_color=ACCENT_TEAL)
+        progress.set(0)
+        progress.pack(fill="x", expand=True)
+
+        abort_evt = threading.Event()
+        
+        btn_cancel = ctk.CTkButton(card, text="✕", width=26, height=26, font=("Inter", 12), text_color="white",
+                                   fg_color="#3a1c1c", hover_color="#5a1c1c",
+                                   command=lambda: abort_evt.set())
+        btn_cancel.pack(side="right", padx=(0, 6))
+
+        def ui(msg, color="#666", dc=None, prog=None):
             self.after(0, lambda: status.configure(text=msg, text_color=color))
             if dc: self.after(0, lambda: dot.configure(text_color=dc))
+            if prog is not None: self.after(0, lambda: progress.set(prog))
+
+        def _update_prog(p):
+            self.after(0, lambda: progress.set(p))
+
 
         def run():
             orig = config.get_active_profile()
@@ -261,11 +318,10 @@ class DashboardView(ctk.CTkFrame):
 
             try:
                 ui("Generating…", "#888", ACCENT_GOLD)
-                reel_path = create_reel()
-                ui(f"Done", "#4dcf9a", "#4dcf9a")
+                reel_path = create_reel(progress_callback=_update_prog, abort_event=abort_evt)
+                ui(f"Done", "#4dcf9a", "#4dcf9a", prog=1.0)
 
-                # Read caption from active profile (saved in YAML)
-                caption = config._config.get("profiles", {}).get(profile, {}).get("caption", "")
+                caption = job_caption
 
                 def _link(p=reel_path):
                     b = ctk.CTkButton(link_row, text=f"▶  {p.name}",
@@ -274,10 +330,13 @@ class DashboardView(ctk.CTkFrame):
                                       height=22, cursor="hand2", anchor="w",
                                       command=lambda: subprocess.Popen(["xdg-open", str(p)]))
                     b.pack(anchor="w")
+                    prog_frame.pack_forget()
                 self.after(0, _link)
 
+                self.after(0, lambda: btn_cancel.configure(state="disabled", fg_color="transparent", text_color="#333"))
+
                 if target_platform == "Instagram":
-                    ui("Uploading to Instagram…", "#888")
+                    ui("Uploading to Instagram…", "#888", prog=1.0)
                     try:
                         session_file = str(PROJECT_ROOT / "bot_insta" / "config" / f"session_{acc_id}.json") if acc_id else None
                         mid = upload_reel(reel_path, caption=caption, username=creds.get("username"), password=creds.get("password"), session_override=session_file)
@@ -287,13 +346,13 @@ class DashboardView(ctk.CTkFrame):
                         acc_manager.update_status(acc_id, "Error")
                         raise e
                 elif target_platform == "YouTube":
-                    ui("Uploading to YouTube…", "#888")
+                    ui("Uploading to YouTube…", "#888", prog=1.0)
                     priv = config._config.get("profiles", {}).get(profile, {}).get("youtube_privacy", "unlisted")
                     vid_id = upload_youtube(reel_path, caption=caption, privacy=priv, client_secrets_override=creds.get("youtube_client_secrets"))
                     ui(f"Uploaded  · ID {vid_id}", "#4dcf9a", "#00c070")
                     acc_manager.update_status(acc_id, "Active")
                 elif target_platform == "TikTok":
-                    ui("Uploading to TikTok…", "#888")
+                    ui("Uploading to TikTok…", "#888", prog=1.0)
                     upload_tiktok(reel_path, caption=caption, cookies_path_override=creds.get("tiktok_session_id"))
                     ui(f"Uploaded to TikTok", "#4dcf9a", "#00c070")
                     acc_manager.update_status(acc_id, "Active")
@@ -302,8 +361,13 @@ class DashboardView(ctk.CTkFrame):
                 # Refresh accounts view implicitly if on UI
                 self.after(0, lambda: self.app.accounts.refresh_list())
                 
+            except InterruptedError:
+                ui("Cancelled by user", "#e05555", "#e05555")
+                self.after(0, lambda: prog_frame.pack_forget())
+                self.after(0, lambda: btn_cancel.configure(state="disabled", fg_color="transparent", text_color="#333"))
             except Exception as e:
                 ui(f"Error: {e}", "#e05555", "#e05555")
+                self.after(0, lambda: prog_frame.pack_forget())
                 import traceback; traceback.print_exc()
                 self.after(0, lambda: self.app.accounts.refresh_list())
             finally:
@@ -375,11 +439,7 @@ class SpecEditorView(ctk.CTkFrame):
                                        command=self.save_yaml)
         self.btn_save.grid(row=0, column=1, padx=(4,0), sticky="ew")
 
-        # Log
-        self.log_box = ctk.CTkTextbox(lf, height=60, font=("Courier", 10),
-                                       fg_color="#0e0f12", text_color="#4dcf9a")
-        self.log_box.grid(row=3, column=0, sticky="ew", padx=12, pady=(0,10))
-        self.log_box.configure(state="disabled")
+
 
         # ── Right: Settings (scrollable) ───────────────────────────────────────
         rf = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
@@ -396,16 +456,21 @@ class SpecEditorView(ctk.CTkFrame):
 
         # ── Profile ───────────────────────────────────────────────────────────
         pf = section("Profile", 0)
+        pf.grid_columnconfigure((0,1,2), weight=1)
         self.profile_var = ctk.StringVar(value=config.get_active_profile())
         self.opt_prof = ctk.CTkOptionMenu(pf, values=config.list_profiles(),
                                            variable=self.profile_var, command=self.load_profile,
                                            fg_color="#23262e", button_color="#23262e",
                                            button_hover_color=ACCENT_TEAL, font=FONT_SMALL)
-        self.opt_prof.grid(row=1, column=0, columnspan=2, padx=14, pady=(0,4), sticky="ew")
+        self.opt_prof.grid(row=1, column=0, columnspan=3, padx=14, pady=(0,4), sticky="ew")
+        
+        self.btn_save_pf = ctk.CTkButton(pf, text="Save Changes", font=FONT_SMALL, fg_color=ACCENT_TEAL, hover_color="#006060",
+                      command=self.save_yaml)
+        self.btn_save_pf.grid(row=2, column=0, padx=(14,4), pady=(0,12), sticky="ew")
         ctk.CTkButton(pf, text="+ New", font=FONT_SMALL, fg_color="#23262e", hover_color="#2e323c",
-                      command=self.new_profile).grid(row=2, column=0, padx=(14,4), pady=(0,12), sticky="ew")
+                      command=self.new_profile).grid(row=2, column=1, padx=(4,4), pady=(0,12), sticky="ew")
         ctk.CTkButton(pf, text="Delete", font=FONT_SMALL, fg_color="#2a1a1a", hover_color="#4a1a1a",
-                      command=self.del_profile).grid(row=2, column=1, padx=(4,14), pady=(0,12), sticky="ew")
+                      command=self.del_profile).grid(row=2, column=2, padx=(4,14), pady=(0,12), sticky="ew")
 
         # ── Font ─────────────────────────────────────────────────────────────
         ff = section("Font", 1)
@@ -434,6 +499,7 @@ class SpecEditorView(ctk.CTkFrame):
         self.wrap_var         = ctk.IntVar(value=30)
         self.fadein_var       = ctk.DoubleVar(value=0.5)
         self.volume_var       = ctk.DoubleVar(value=1.0)
+        self.duration_var     = ctk.IntVar(value=10)
 
         def sl(parent, label, row, var, lo, hi, fmt, col=0, cspan=2):
             lbl_v = ctk.CTkLabel(parent, text=fmt(var.get()), font=FONT_SMALL, text_color=ACCENT_GOLD)
@@ -449,8 +515,9 @@ class SpecEditorView(ctk.CTkFrame):
         sl(sf, "Wrap Width",   5, self.wrap_var,         10, 60,  lambda v: str(int(v)))
 
         af = section("Audio & Timing", 4)
-        sl(af, "Music Volume", 1, self.volume_var, 0.0, 1.0, lambda v: f"{int(float(v)*100)}%")
-        sl(af, "Text Fade-In", 3, self.fadein_var, 0.0, 3.0, lambda v: f"{float(v):.1f}s")
+        sl(af, "Video Duration", 1, self.duration_var, 5, 60, lambda v: f"{int(v)}s")
+        sl(af, "Music Volume",   3, self.volume_var, 0.0, 1.0, lambda v: f"{int(float(v)*100)}%")
+        sl(af, "Text Fade-In",   5, self.fadein_var, 0.0, 3.0, lambda v: f"{float(v):.1f}s")
 
         # ── Folders & Content ─────────────────────────────────────────────────
         xf = section("Assets & Content", 5)
@@ -557,12 +624,6 @@ class SpecEditorView(ctk.CTkFrame):
 
         _build_overlay_pills()
         self._build_overlay_pills = _build_overlay_pills
-
-        # Caption
-        ctk.CTkLabel(xf, text="Instagram caption", font=FONT_SMALL, text_color="#555").grid(
-            row=7, column=0, padx=14, sticky="w", pady=(12,0))
-        self.txt_cap = ctk.CTkTextbox(xf, height=50, font=FONT_SMALL)
-        self.txt_cap.grid(row=8, column=0, padx=14, pady=(2,4), sticky="ew")
 
         ctk.CTkLabel(xf, text="Preview quote", font=FONT_SMALL, text_color="#555").grid(
             row=9, column=0, padx=14, sticky="w", pady=(6,0))
@@ -829,6 +890,9 @@ class SpecEditorView(ctk.CTkFrame):
         self.wrap_var.set(text.get("wrap_width",30))
         self.fadein_var.set(float(text.get("fadein",0.5)))
         self.volume_var.set(float(audio.get("volume",1.0)))
+        
+        fallback_dir = config._config.get("video",{}).get("duration", 10)
+        self.duration_var.set(int(prof.get("duration", fallback_dir)))
 
         # Font
         fp = text.get("font_path","")
@@ -851,9 +915,7 @@ class SpecEditorView(ctk.CTkFrame):
         # Rebuild pill buttons to reflect new selection
         for rebuilder in getattr(self, "_folder_rebuilders", {}).values():
             rebuilder()
-
-        self.txt_cap.delete("0.0","end"); self.txt_cap.insert("0.0", prof.get("caption",""))
-
+        
         raw = text.get("position", "center")
         if raw == "center":
             self.text_pos = (self.c_w // 2, self.c_h // 2)
@@ -906,7 +968,7 @@ class SpecEditorView(ctk.CTkFrame):
         prof["backgrounds_subfolder"] = getattr(self, "_bg_sel", ctk.StringVar()).get()
         prof["music_subfolder"]       = getattr(self, "_music_sel", ctk.StringVar()).get()
         prof["overlay_image"]         = getattr(self, "_overlay_sel", ctk.StringVar()).get()
-        prof["caption"]               = self.txt_cap.get("0.0","end").strip()
+        prof["duration"]              = int(self.duration_var.get())
 
         x, y = self.text_pos
         ry = int(y*1920/self.c_h)
@@ -917,13 +979,16 @@ class SpecEditorView(ctk.CTkFrame):
         self.app.dashboard.refresh_profiles()
         self._log("Saved")
         self.btn_save.configure(text="Saved ✓", fg_color="#005a40")
-        self.after(1800, lambda: self.btn_save.configure(text="Save", fg_color="#23262e"))
+        self.btn_save_pf.configure(text="Saved ✓", fg_color="#005a40")
+        
+        def revert():
+            self.btn_save.configure(text="Save", fg_color="#23262e")
+            self.btn_save_pf.configure(text="Save Changes", fg_color=ACCENT_TEAL)
+            
+        self.after(1800, revert)
 
     def _log(self, msg):
-        self.log_box.configure(state="normal")
-        self.log_box.insert("end", msg+"\n")
-        self.log_box.see("end")
-        self.log_box.configure(state="disabled")
+        print(f"[Log] {msg}")
 
     def test_gen(self):
         self.save_yaml()
@@ -941,6 +1006,100 @@ class SpecEditorView(ctk.CTkFrame):
             finally:
                 self.after(0, lambda: self.btn_test.configure(state="normal", text="▶ Test"))
         threading.Thread(target=run, daemon=True).start()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CAPTIONS CONFIGURATION VIEW
+# ─────────────────────────────────────────────────────────────────────────────
+class CaptionsView(ctk.CTkFrame):
+    def __init__(self, parent, app):
+        super().__init__(parent, fg_color="transparent")
+        self.app = app
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        # ── Controls ────────────────────────────────────────────────────────
+        ctrl = ctk.CTkFrame(self, fg_color="#1c1f27", corner_radius=8)
+        ctrl.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+
+        ctk.CTkLabel(ctrl, text="Caption Profile", font=FONT_SMALL, text_color="#555").pack(side="left", padx=(14,4))
+        
+        self.selected_cap = ctk.StringVar()
+        self.dd_cap = DropdownButton(ctrl, "", [], self._on_cap_select, width=150)
+        self.dd_cap.pack(side="left", padx=(0,12))
+
+        ctk.CTkButton(ctrl, text="+ New", font=FONT_SMALL, width=60, fg_color="#23262e", hover_color="#2e323c",
+                      command=self._new_cap).pack(side="left", padx=(4,0))
+        ctk.CTkButton(ctrl, text="Delete", font=FONT_SMALL, width=60, fg_color="#2a1a1a", hover_color="#4a1a1a",
+                      command=self._del_cap).pack(side="left", padx=4)
+
+        ctk.CTkButton(ctrl, text="Save Changes", font=FONT_SMALL, fg_color=ACCENT_TEAL, hover_color="#006060",
+                      command=self._save_cap).pack(side="right", padx=14)
+
+        # ── Editor Form ─────────────────────────────────────────────────────
+        self.form_wrap = ctk.CTkFrame(self, fg_color="#1c1f27", corner_radius=8)
+        self.form_wrap.grid(row=1, column=0, sticky="nsew")
+        self.form_wrap.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(self.form_wrap, text="Description", font=FONT_MAIN, text_color="#c0c0c0").grid(row=0, column=0, sticky="w", padx=20, pady=(20, 5))
+        self.txt_desc = ctk.CTkTextbox(self.form_wrap, height=120, font=FONT_SMALL, fg_color="#23262e")
+        self.txt_desc.grid(row=1, column=0, sticky="ew", padx=20)
+
+        ctk.CTkLabel(self.form_wrap, text="Hashtags", font=FONT_MAIN, text_color="#c0c0c0").grid(row=2, column=0, sticky="w", padx=20, pady=(20, 5))
+        self.txt_tags = ctk.CTkTextbox(self.form_wrap, height=60, font=FONT_SMALL, fg_color="#23262e")
+        self.txt_tags.grid(row=3, column=0, sticky="ew", padx=20)
+
+        self._refresh()
+
+    def _refresh(self, name_to_select=None):
+        caps = config.list_captions()
+        self.dd_cap.update_options(caps)
+        if not caps:
+            self.selected_cap.set("")
+            self.dd_cap.set_label("No profiles")
+            self.txt_desc.delete("0.0", "end")
+            self.txt_tags.delete("0.0", "end")
+            return
+        
+        target = name_to_select if name_to_select in caps else caps[0]
+        self._on_cap_select(target)
+
+    def _on_cap_select(self, name):
+        self.selected_cap.set(name)
+        self.dd_cap.set_label(name)
+        data = config.get_caption_data(name)
+        
+        self.txt_desc.delete("0.0", "end")
+        self.txt_desc.insert("0.0", data.get("description", ""))
+        self.txt_tags.delete("0.0", "end")
+        self.txt_tags.insert("0.0", data.get("hashtags", ""))
+
+    def _new_cap(self):
+        name = simpledialog.askstring("New Caption", "Profile Name:", parent=self)
+        if not name or not name.strip(): return
+        
+        if name in config.list_captions():
+            messagebox.showerror("Error", "Caption profile already exists.", parent=self)
+            return
+            
+        config.update_caption(name.strip(), "", "")
+        self._refresh(name.strip())
+        self.app.dashboard.refresh_profiles()
+
+    def _del_cap(self):
+        name = self.selected_cap.get()
+        if not name: return
+        if messagebox.askyesno("Delete", f"Delete caption profile '{name}'?", parent=self):
+            config.delete_caption(name)
+            self._refresh()
+            self.app.dashboard.refresh_profiles()
+
+    def _save_cap(self):
+        name = self.selected_cap.get()
+        if not name: return
+        config.update_caption(name, self.txt_desc.get("0.0", "end").strip(), self.txt_tags.get("0.0", "end").strip())
+        messagebox.showinfo("Saved", f"Caption '{name}' updated.", parent=self)
+        self.app.dashboard.refresh_profiles()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1158,6 +1317,11 @@ class BotApp(ctk.CTk):
                                     command=lambda: self._show("editor"))
         self.btn_e.pack(side="left")
 
+        self.btn_c = ctk.CTkButton(nav, text="📝 Captions", font=FONT_SMALL, width=100,
+                                    fg_color="#23262e", hover_color="#2e323c",
+                                    command=lambda: self._show("captions"))
+        self.btn_c.pack(side="left", padx=(6,0))
+
         self.btn_a = ctk.CTkButton(nav, text="Accounts", font=FONT_SMALL, width=100,
                                     fg_color="#23262e", hover_color="#2e323c",
                                     command=lambda: self._show("accounts"))
@@ -1171,17 +1335,20 @@ class BotApp(ctk.CTk):
 
         self.dashboard = DashboardView(self.wrap, self)
         self.editor    = SpecEditorView(self.wrap, self)
+        self.captions  = CaptionsView(self.wrap, self)
         self.accounts  = AccountsView(self.wrap, self)
         self._show("dashboard")
 
     def _show(self, view):
         self.dashboard.grid_forget()
         self.editor.grid_forget()
+        self.captions.grid_forget()
         self.accounts.grid_forget()
         
         # Reset buttons to default color
         self.btn_d.configure(fg_color="#23262e")
         self.btn_e.configure(fg_color="#23262e")
+        self.btn_c.configure(fg_color="#23262e")
         self.btn_a.configure(fg_color="#23262e")
 
         if view == "dashboard":
@@ -1190,6 +1357,9 @@ class BotApp(ctk.CTk):
         elif view == "editor":
             self.editor.grid(row=0, column=0, sticky="nsew")
             self.btn_e.configure(fg_color=ACCENT_TEAL)
+        elif view == "captions":
+            self.captions.grid(row=0, column=0, sticky="nsew")
+            self.btn_c.configure(fg_color=ACCENT_TEAL)
         elif view == "accounts":
             self.accounts.grid(row=0, column=0, sticky="nsew")
             self.btn_a.configure(fg_color=ACCENT_TEAL)

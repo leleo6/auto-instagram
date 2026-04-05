@@ -26,10 +26,35 @@ from moviepy.editor import (
     concatenate_audioclips,
 )
 from moviepy.audio.fx.audio_fadeout import audio_fadeout
+from proglog import ProgressBarLogger
 
 from bot_insta.src.core.config_loader import config
 
 log = logging.getLogger(__name__)
+
+class GUILogger(ProgressBarLogger):
+    def __init__(self, on_progress=None, abort_event=None):
+        super().__init__()
+        self.on_progress = on_progress
+        self.abort_event = abort_event
+        self.bar_totals = {}
+
+    def callback(self, **kw):
+        # Moviepy calls this for text messages (e.g., logger(message="..."))
+        # We can safely ignore it to avoid UI disruption.
+        pass
+
+    def bars_callback(self, bar, attr, value, old_value=None):
+        if self.abort_event and self.abort_event.is_set():
+            raise InterruptedError("Render cancelled by user")
+        
+        if attr == 'total':
+            self.bar_totals[bar] = value
+        elif attr == 'index':
+            total = self.bar_totals.get(bar, 100)
+            if total > 0 and self.on_progress:
+                # Limit callback granularity to avoid flooding tkinter
+                self.on_progress(min(1.0, value / total))
 
 
 def pick_random_file(directory: Path, extensions: tuple) -> Path:
@@ -137,7 +162,7 @@ def build_overlay(overlay_path: Path, duration: float, target_w: int, target_h: 
     return img.set_position((x, y)).set_duration(duration).set_opacity(0.8)
 
 
-def create_reel() -> Path:
+def create_reel(progress_callback=None, abort_event=None) -> Path:
     """Full pipeline orchestrator — reads active profile from config."""
     log.info("═══ Iniciando generación del Reel ═══")
 
@@ -147,7 +172,6 @@ def create_reel() -> Path:
     quotes_file = config.get_path("quotes")
 
     vid_cfg   = config.get_video_settings()
-    duration  = vid_cfg.get("duration", 10)
     target_w  = vid_cfg.get("target_w", 1080)
     target_h  = vid_cfg.get("target_h", 1920)
     fadeout   = vid_cfg.get("audio_fadeout", 2)
@@ -157,6 +181,7 @@ def create_reel() -> Path:
     volume    = float(audio_cfg.get("volume", 1.0))
 
     prof_data = config.get_active_profile_data()
+    duration  = prof_data.get("duration", vid_cfg.get("duration", 10))
     overlay_name = prof_data.get("overlay_image", "")
 
     # ── Pick assets ─────────────────────────────────────────────────────────
@@ -187,6 +212,8 @@ def create_reel() -> Path:
     out_file   = output_dir / f"reel_{today}.mp4"
 
     log.info("Renderizando → %s", out_file)
+    logger_obj = GUILogger(on_progress=progress_callback, abort_event=abort_event)
+
     final.write_videofile(
         str(out_file),
         fps=30,
@@ -194,7 +221,7 @@ def create_reel() -> Path:
         audio_codec="aac",
         preset="fast",
         threads=os.cpu_count(),
-        logger="bar",
+        logger=logger_obj,
     )
     log.info("═══ Reel guardado en %s ═══", out_file)
     return out_file

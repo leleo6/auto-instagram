@@ -26,7 +26,37 @@ class ConfigLoader:
         if not self.config_path.exists():
             raise FileNotFoundError(f"Missing config file at {self.config_path}")
         with open(self.config_path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
+            data = yaml.safe_load(f) or {}
+            
+        modified = False
+        
+        # Initialize captions block if missing
+        if "captions" not in data:
+            data["captions"] = {}
+            modified = True
+
+        # Migrate legacy profile captions
+        for p_name, p_data in data.get("profiles", {}).items():
+            if "caption" in p_data:
+                legacy_str = p_data.pop("caption")
+                modified = True
+                
+                # Try isolating hashtags from the description to create a clean new record
+                parts = legacy_str.split("#", 1)
+                desc = parts[0].strip()
+                hashtags = ("#" + parts[1].strip()) if len(parts) > 1 else ""
+                
+                if p_name not in data["captions"]:
+                    data["captions"][p_name] = {
+                        "description": desc,
+                        "hashtags": hashtags
+                    }
+        
+        if modified:
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True)
+                
+        return data
 
     # ── Path resolution ────────────────────────────────────────────────────────
     def get_path(self, key: str) -> Path:
@@ -109,6 +139,24 @@ class ConfigLoader:
             raise KeyError(f"Profile '{name}' not found.")
         self._config["active_profile"] = name
         self.save()
+
+    # ── Captions CRUD ──────────────────────────────────────────────────────────
+    def list_captions(self) -> list[str]:
+        return list(self._config.get("captions", {}).keys())
+
+    def get_caption_data(self, name: str) -> dict:
+        return self._config.get("captions", {}).get(name, {"description": "", "hashtags": ""})
+
+    def update_caption(self, name: str, description: str, hashtags: str) -> None:
+        captions = self._config.setdefault("captions", {})
+        captions[name] = {"description": description, "hashtags": hashtags}
+        self.save()
+
+    def delete_caption(self, name: str) -> None:
+        captions = self._config.get("captions", {})
+        if name in captions:
+            del captions[name]
+            self.save()
 
     # ── Persistence ────────────────────────────────────────────────────────────
     def save(self) -> None:
