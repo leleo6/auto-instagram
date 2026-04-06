@@ -20,12 +20,12 @@ def create_platform_icon(platform: str) -> ctk.CTkImage:
         d.ellipse([4, 4, 20, 20], outline="#aaaaaa", width=2)
     return ctk.CTkImage(light_image=img, dark_image=img, size=(18, 18))
 
-def make_video_context(config, profile) -> VideoContext:
+def make_video_context(config, profile, quotes_file_override=None) -> VideoContext:
     orig = config.get_active_profile()
     config._config["active_profile"] = profile
     bg_dir      = config.get_path("backgrounds")
     music_dir   = config.get_path("music")
-    quotes_file = config.get_path("quotes")
+    quotes_file = quotes_file_override if quotes_file_override else config.get_path("quotes")
     output_dir  = config.get_path("output_dir")
 
     vid_cfg   = config.get_video_settings()

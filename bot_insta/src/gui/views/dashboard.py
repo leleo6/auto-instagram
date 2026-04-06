@@ -7,6 +7,7 @@ from bot_insta.src.core.config_loader import config
 from bot_insta.src.core.account_manager import acc_manager
 from bot_insta.src.core.video_engine import create_reel
 from bot_insta.src.core.uploader_factory import UploaderFactory
+from bot_insta.src.core.history_manager import history_manager
 from bot_insta.src.gui.components.dropdown import DropdownButton
 from bot_insta.src.gui.utils import create_platform_icon, make_video_context
 from bot_insta.src.gui.bootstrap import PROJECT_ROOT
@@ -27,6 +28,15 @@ class DashboardView(ctk.CTkFrame):
         self.dd_profile = DropdownButton(ctrl, self.selected_profile.get(), config.list_profiles(),
                                          self._on_profile, width=150)
         self.dd_profile.pack(side="left", padx=(0,12))
+
+        ctk.CTkFrame(ctrl, width=1, height=24, fg_color="#333").pack(side="left", padx=4)
+
+        ctk.CTkLabel(ctrl, text="Quotes", font=FONT_SMALL, text_color="#555").pack(side="left", padx=(12,3))
+        self.quotes_options = config.list_quote_groups()
+        self.selected_quotes = ctk.StringVar(value=self.quotes_options[0] if self.quotes_options else "")
+        self.dd_quotes = DropdownButton(ctrl, self.selected_quotes.get(), self.quotes_options,
+                                        self._on_quotes, width=150)
+        self.dd_quotes.pack(side="left", padx=(0,12))
 
         # vertical divider
         ctk.CTkFrame(ctrl, width=1, height=24, fg_color="#333").pack(side="left", padx=4)
@@ -77,6 +87,14 @@ class DashboardView(ctk.CTkFrame):
         if self.selected_cap_opt.get() not in self.caption_options:
             self.selected_cap_opt.set(self.caption_options[2] if len(self.caption_options)>2 else "None")
         self.dd_cap.update_options(self.caption_options, self.selected_cap_opt.get())
+        
+        self.quotes_options = config.list_quote_groups()
+        if self.selected_quotes.get() not in self.quotes_options:
+            self.selected_quotes.set(self.quotes_options[0] if self.quotes_options else "")
+        self.dd_quotes.update_options(self.quotes_options, self.selected_quotes.get())
+
+    def _on_quotes(self, name):
+        self.selected_quotes.set(name)
 
     def _on_profile(self, name):
         self.selected_profile.set(name)
@@ -182,7 +200,13 @@ class DashboardView(ctk.CTkFrame):
 
             try:
                 ui("Generating…", "#888", ACCENT_GOLD)
-                ctx = make_video_context(config, profile)
+                
+                quotes_file_override = None
+                sel_quotes = self.selected_quotes.get()
+                if sel_quotes:
+                    quotes_file_override = config.get_quote_file(sel_quotes)
+
+                ctx = make_video_context(config, profile, quotes_file_override=quotes_file_override)
                 reel_path = create_reel(ctx, progress_callback=_update_prog, abort_event=abort_evt)
                 ui(f"Done", "#4dcf9a", "#4dcf9a", prog=1.0)
 
@@ -210,10 +234,14 @@ class DashboardView(ctk.CTkFrame):
                         mid = uploader.upload(reel_path, caption=caption, credentials=uploader_creds, proxy=acc_proxy, abort_event=abort_evt)
                         ui(f"Uploaded  · ID {mid}", "#4dcf9a", "#00c070")
                         acc_manager.update_status(acc_id, "Active")
+                        history_manager.log_event(reel_path.name, target_platform, acc_id, "Success", mid)
                     except Exception as e:
                         acc_manager.update_status(acc_id, "Error")
+                        history_manager.log_event(reel_path.name, target_platform, acc_id, f"Failed: {str(e)[:50]}")
                         raise e
-                # "Local" → nothing extra
+                else:
+                    # "Local" → nothing extra
+                    history_manager.log_event(reel_path.name, "Local", "local", "Generated")
                 
                 # Refresh accounts view implicitly if on UI
                 self.after(0, lambda: self.app.accounts.refresh_list())

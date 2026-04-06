@@ -17,7 +17,9 @@ from bot_insta.src.gui.bootstrap import init_app_theme
 from bot_insta.src.gui.views.dashboard import DashboardView
 from bot_insta.src.gui.views.spec_editor import SpecEditorView
 from bot_insta.src.gui.views.captions import CaptionsView
+from bot_insta.src.gui.views.quotes import QuotesView
 from bot_insta.src.gui.views.accounts import AccountsView
+from bot_insta.src.gui.views.history import HistoryView
 
 class BotApp(ctk.CTk):
     def __init__(self):
@@ -52,15 +54,25 @@ class BotApp(ctk.CTk):
                                     command=lambda: self._show("editor"))
         self.btn_e.pack(side="left")
 
-        self.btn_c = ctk.CTkButton(nav, text="📝 Captions", font=FONT_SMALL, width=100,
+        self.btn_c = ctk.CTkButton(nav, text="Captions", font=FONT_SMALL, width=100,
                                     fg_color="#23262e", hover_color="#2e323c",
                                     command=lambda: self._show("captions"))
         self.btn_c.pack(side="left", padx=(6,0))
+
+        self.btn_q = ctk.CTkButton(nav, text="Quotes", font=FONT_SMALL, width=100,
+                                    fg_color="#23262e", hover_color="#2e323c",
+                                    command=lambda: self._show("quotes"))
+        self.btn_q.pack(side="left", padx=(6,0))
 
         self.btn_a = ctk.CTkButton(nav, text="Accounts", font=FONT_SMALL, width=100,
                                     fg_color="#23262e", hover_color="#2e323c",
                                     command=lambda: self._show("accounts"))
         self.btn_a.pack(side="left", padx=(6,0))
+
+        self.btn_h = ctk.CTkButton(nav, text="Historial", font=FONT_SMALL, width=100,
+                                    fg_color="#23262e", hover_color="#2e323c",
+                                    command=lambda: self._show("history"))
+        self.btn_h.pack(side="left", padx=(6,0))
 
         # ── Views ─────────────────────────────────────────────────────────────
         self.wrap = ctk.CTkFrame(self, fg_color="transparent")
@@ -71,20 +83,26 @@ class BotApp(ctk.CTk):
         self.dashboard = DashboardView(self.wrap, self)
         self.editor    = SpecEditorView(self.wrap, self)
         self.captions  = CaptionsView(self.wrap, self)
+        self.quotes    = QuotesView(self.wrap, self)
         self.accounts  = AccountsView(self.wrap, self)
+        self.history   = HistoryView(self.wrap, self)
         self._show("dashboard")
 
     def _show(self, view):
         self.dashboard.grid_forget()
         self.editor.grid_forget()
         self.captions.grid_forget()
+        self.quotes.grid_forget()
         self.accounts.grid_forget()
+        self.history.grid_forget()
         
         # Reset buttons to default color
         self.btn_d.configure(fg_color="#23262e")
         self.btn_e.configure(fg_color="#23262e")
         self.btn_c.configure(fg_color="#23262e")
+        self.btn_q.configure(fg_color="#23262e")
         self.btn_a.configure(fg_color="#23262e")
+        self.btn_h.configure(fg_color="#23262e")
 
         if view == "dashboard":
             self.dashboard.grid(row=0, column=0, sticky="nsew")
@@ -95,6 +113,13 @@ class BotApp(ctk.CTk):
         elif view == "captions":
             self.captions.grid(row=0, column=0, sticky="nsew")
             self.btn_c.configure(fg_color=ACCENT_TEAL)
+        elif view == "quotes":
+            self.quotes.grid(row=0, column=0, sticky="nsew")
+            self.btn_q.configure(fg_color=ACCENT_TEAL)
         elif view == "accounts":
             self.accounts.grid(row=0, column=0, sticky="nsew")
             self.btn_a.configure(fg_color=ACCENT_TEAL)
+        elif view == "history":
+            self.history.grid(row=0, column=0, sticky="nsew")
+            self.history.refresh()
+            self.btn_h.configure(fg_color=ACCENT_TEAL)

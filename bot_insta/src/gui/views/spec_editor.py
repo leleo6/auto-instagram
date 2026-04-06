@@ -254,11 +254,38 @@ class SpecEditorView(ctk.CTkFrame):
         _build_overlay_pills()
         self._build_overlay_pills = _build_overlay_pills
 
+        # Quote Group picker
+        qt_hdr = ctk.CTkFrame(xf, fg_color="transparent")
+        qt_hdr.grid(row=7, column=0, sticky="ew", padx=14, pady=(12,0))
+        qt_hdr.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(qt_hdr, text="Quote Group (Default)", font=FONT_SMALL, text_color="#555").grid(row=0, column=0, sticky="w")
+        qt_pills = ctk.CTkFrame(xf, fg_color="transparent")
+        qt_pills.grid(row=8, column=0, sticky="ew", padx=14, pady=(4,0))
+        self._quote_sel = ctk.StringVar(value="")
+
+        def _build_quote_pills():
+            for w in qt_pills.winfo_children(): w.destroy()
+            opts = ["(default)"] + config.list_quote_groups()
+            for ci, grp in enumerate(opts):
+                val = "" if grp == "(default)" else grp
+                active = (self._quote_sel.get() == val)
+                c = ACCENT_TEAL if active else "#23262e"
+                def _pick(v=val):
+                    self._quote_sel.set(v)
+                    _build_quote_pills()
+                    self._sample_quote()
+                ctk.CTkButton(qt_pills, text=grp, width=0, height=26,
+                              font=FONT_SMALL, fg_color=c,
+                              hover_color="#2e5050" if active else "#2e323c",
+                              command=_pick).grid(row=0, column=ci, padx=(0,4), pady=2, sticky="w")
+        
+        _build_quote_pills()
+        self._build_quote_pills = _build_quote_pills
+
         ctk.CTkLabel(xf, text="Preview quote", font=FONT_SMALL, text_color="#555").grid(
-            row=9, column=0, padx=14, sticky="w", pady=(6,0))
+            row=11, column=0, padx=14, sticky="w", pady=(6,0))
         self.txt_q = ctk.CTkTextbox(xf, height=65, font=FONT_SMALL)
-        self.txt_q.grid(row=10, column=0, padx=14, pady=(2,12), sticky="ew")
-        self.txt_q.insert("0.0", "Your motivational quote preview.")
+        self.txt_q.grid(row=12, column=0, padx=14, pady=(2,12), sticky="ew")
         self.txt_q.bind("<KeyRelease>", lambda e: self.update_preview())
 
 
@@ -281,6 +308,15 @@ class SpecEditorView(ctk.CTkFrame):
             self.text_pos = (self.text_pos[0]+dx, self.text_pos[1]+dy)
             self._drag["x"], self._drag["y"] = e.x, e.y
             self.update_preview()
+
+    def _sample_quote(self):
+        sel = getattr(self, "_quote_sel", ctk.StringVar()).get()
+        if sel:
+            lines = [l.strip() for l in config.read_quote_group(sel).split('\n') if l.strip()]
+            if lines:
+                self.txt_q.delete("0.0", "end")
+                self.txt_q.insert("0.0", random.choice(lines))
+                self.update_preview()
 
     def _load_bg_frame(self):
         """Pick a random background video frame (single snapshot for static preview)."""
@@ -536,14 +572,22 @@ class SpecEditorView(ctk.CTkFrame):
         bg_sub = prof.get("backgrounds_subfolder", "")
         mu_sub = prof.get("music_subfolder", "")
         ov_img = prof.get("overlay_image", "")
+        qt_grp = prof.get("quote_group_name", "")
         if hasattr(self, "_bg_sel"): self._bg_sel.set(bg_sub)
         if hasattr(self, "_music_sel"): self._music_sel.set(mu_sub)
+        if hasattr(self, "_quote_sel"): self._quote_sel.set(qt_grp)
         if hasattr(self, "_overlay_sel"):
             self._overlay_sel.set(ov_img)
             if hasattr(self, "_build_overlay_pills"): self._build_overlay_pills()
+        
+        # Select UI pill elements for quote groups
+        if hasattr(self, "_build_quote_pills"): self._build_quote_pills()
+        
         # Rebuild pill buttons to reflect new selection
         for rebuilder in getattr(self, "_folder_rebuilders", {}).values():
             rebuilder()
+        
+        self._sample_quote()
         
         raw = text.get("position", "center")
         if raw == "center":
@@ -563,7 +607,10 @@ class SpecEditorView(ctk.CTkFrame):
         if not name or not name.strip(): return
         try:
             config.create_profile(name.strip(), self.active_profile)
-            self.load_profile(name.strip())
+            self.active_profile = name.strip()
+            self.opt_prof.configure(values=config.list_profiles())
+            self.profile_var.set(self.active_profile)
+            self.save_yaml()
             self.app.dashboard.refresh_profiles()
             self._log(f"Created '{name}'")
         except Exception as e: messagebox.showerror("Error",str(e),parent=self)
@@ -597,6 +644,8 @@ class SpecEditorView(ctk.CTkFrame):
         prof["backgrounds_subfolder"] = getattr(self, "_bg_sel", ctk.StringVar()).get()
         prof["music_subfolder"]       = getattr(self, "_music_sel", ctk.StringVar()).get()
         prof["overlay_image"]         = getattr(self, "_overlay_sel", ctk.StringVar()).get()
+        prof["quote_group_name"]      = getattr(self, "_quote_sel", ctk.StringVar()).get()
+        prof["quotes_file"]           = f"bot_insta/config/quotes/{prof['quote_group_name']}.txt" if prof["quote_group_name"] else "bot_insta/config/quotes/quotes.txt"
         prof["duration"]              = int(self.duration_var.get())
 
         x, y = self.text_pos

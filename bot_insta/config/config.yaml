@@ -1,11 +1,12 @@
-active_profile: default
+active_profile: Centrado
 captions:
-  default:
-    description: test asjoaijsioajsijaoisioansiodnaoidnosand
-    hashtags: '#motivation #mindset #daily'
-  gym_motivation:
-    description: 💪 Gym motivation 🔥
-    hashtags: '#gym #fitness #grind'
+  starpleno:
+    description: Tómate un segundo para respirar. ✨ A veces, el mayor acto de productividad
+      es permitirte un momento de calma.Limpiar tu espacio es limpiar tu mente. Nuestros
+      sahumerios y baños energéticos te ayudan a liberar tensiones acumuladas y renovar
+      tu vibración personal
+    hashtags: '#MedicinaNatural #Autocuidado #StarPleno #BienestarNatural #HechoConAmor
+      #Manizales #SaludFisica #PazEspiritual'
 gui:
   accent_gold: '#FFD700'
   accent_teal: '#008080'
@@ -21,6 +22,28 @@ paths:
   youtube_client_secrets: bot_insta/config/youtube_client_secrets.json
   youtube_token: bot_insta/config/youtube_token.json
 profiles:
+  Centrado:
+    audio:
+      volume: 1.0
+    backgrounds_subfolder: ''
+    duration: 10
+    music_subfolder: ''
+    overlay_image: ''
+    quote_group_name: ''
+    quotes_file: bot_insta/config/quotes/quotes.txt
+    text:
+      color: white
+      fadein: 0.47
+      font_path: /usr/share/fonts/gnu-free/FreeSerifItalic.otf
+      font_size: 81
+      max_width: 880
+      position:
+      - center
+      - 960
+      stroke_color: black
+      stroke_width: 7
+      wrap_width: 30
+    youtube_privacy: unlisted
   default:
     audio:
       volume: 1.0

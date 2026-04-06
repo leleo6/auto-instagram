@@ -26,6 +26,7 @@ from moviepy.editor import (
     concatenate_videoclips,
     concatenate_audioclips,
 )
+import moviepy.video.fx.all as vfx
 from moviepy.audio.fx.audio_fadeout import audio_fadeout
 from proglog import ProgressBarLogger
 
@@ -94,11 +95,11 @@ def load_random_quote(quotes_file: Path) -> str:
 
 
 def prepare_background(video_path: Path, duration: float, target_w: int, target_h: int) -> VideoFileClip:
-    clip = VideoFileClip(str(video_path))
+    clip = VideoFileClip(str(video_path), audio=False)
     if clip.duration < duration:
-        loops = int(duration / clip.duration) + 1
-        clip = concatenate_videoclips([clip] * loops)
-    clip = clip.subclip(0, duration)
+        clip = clip.fx(vfx.loop, duration=duration)
+    else:
+        clip = clip.subclip(0, duration)
 
     clip_ratio   = clip.w / clip.h
     target_ratio = target_w / target_h
@@ -128,8 +129,7 @@ def prepare_audio(audio_path: Path, duration: float, fadeout: float, volume: flo
 
 
 def build_text_overlay(quote: str, duration: float, text_cfg: dict) -> TextClip:
-    quoted  = f"\u201c{quote}\u201d"
-    wrapped = textwrap.fill(quoted, width=text_cfg.get('wrap_width', 30))
+    wrapped = textwrap.fill(quote, width=text_cfg.get('wrap_width', 30))
 
     # Position
     raw_pos = text_cfg.get("position", "center")

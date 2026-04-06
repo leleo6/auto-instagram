@@ -76,7 +76,7 @@ class ConfigLoader:
             sub = prof.get("music_subfolder", "")
             return base / sub if sub else base
         if key == "quotes":
-            return PROJECT_ROOT / prof.get("quotes_file", "bot_insta/config/quotes.txt")
+            return PROJECT_ROOT / prof.get("quotes_file", "bot_insta/config/quotes/quotes.txt")
         if key == "overlays":
             return PROJECT_ROOT / self._config["paths"].get("base_overlays", "bot_insta/assets/overlays")
 
@@ -157,6 +157,31 @@ class ConfigLoader:
         if name in captions:
             del captions[name]
             self.save()
+
+    # ── Quotes CRUD (File-based) ───────────────────────────────────────────────
+    def get_quotes_dir(self) -> Path:
+        d = PROJECT_ROOT / "bot_insta" / "config" / "quotes"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def list_quote_groups(self) -> list[str]:
+        d = self.get_quotes_dir()
+        return sorted([f.stem for f in d.glob("*.txt")])
+
+    def get_quote_file(self, name: str) -> Path:
+        return self.get_quotes_dir() / f"{name}.txt"
+
+    def read_quote_group(self, name: str) -> str:
+        f = self.get_quote_file(name)
+        return f.read_text("utf-8") if f.exists() else ""
+
+    def save_quote_group(self, name: str, content: str) -> None:
+        if not name: return
+        self.get_quote_file(name).write_text(content, "utf-8")
+
+    def delete_quote_group(self, name: str) -> None:
+        f = self.get_quote_file(name)
+        if f.exists(): f.unlink()
 
     # ── Persistence ────────────────────────────────────────────────────────────
     def save(self) -> None:
