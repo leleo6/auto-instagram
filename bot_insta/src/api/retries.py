@@ -18,6 +18,10 @@ def with_retries(max_attempts=3, base_delay=5.0, backoff_factor=2.0, exceptions=
             while attempt <= max_attempts:
                 try:
                     return func(*args, **kwargs)
+                except InterruptedError:
+                    # BUG-08 fix: cancelaciones del usuario no deben reintentarse.
+                    # Relevar inmediatamente sin consumir intentos ni esperar.
+                    raise
                 except exceptions as e:
                     if attempt == max_attempts:
                         log.error("❌ Max retries reached for %s. Final error: %s", func.__name__, e)

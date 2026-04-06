@@ -20,30 +20,46 @@ def create_platform_icon(platform: str) -> ctk.CTkImage:
         d.ellipse([4, 4, 20, 20], outline="#aaaaaa", width=2)
     return ctk.CTkImage(light_image=img, dark_image=img, size=(18, 18))
 
-def make_video_context(config, profile, quotes_file_override=None) -> VideoContext:
-    orig = config.get_active_profile()
-    config._config["active_profile"] = profile
-    bg_dir      = config.get_path("backgrounds")
-    music_dir   = config.get_path("music")
-    quotes_file = quotes_file_override if quotes_file_override else config.get_path("quotes")
-    output_dir  = config.get_path("output_dir")
-
+def make_video_context(config, profile: str, quotes_file_override=None) -> VideoContext:
+    """Construye un VideoContext para el perfil dado SIN mutar el estado global de config.
+    
+    BUG-03 fix: leer datos del perfil directamente en vez de cambiar active_profile,
+    lo que era una race condition cuando había múltiples jobs corriendo en paralelo.
+    """
+    # Leer datos directamente del perfil solicitado (thread-safe, sin mutar el singleton)
+    prof_data = config._config.get("profiles", {}).get(profile, {})
     vid_cfg   = config.get_video_settings()
+
+    bg_base   = config.get_path("backgrounds").parent  # base dir
+    sub_bg    = prof_data.get("backgrounds_subfolder", "")
+    bg_dir    = bg_base / sub_bg if sub_bg else bg_base
+
+    mu_base   = config.get_path("music").parent  # base dir
+    sub_mu    = prof_data.get("music_subfolder", "")
+    music_dir = mu_base / sub_mu if sub_mu else mu_base
+
+    if quotes_file_override:
+        quotes_file = quotes_file_override
+    else:
+        from bot_insta.src.core.config_loader import PROJECT_ROOT
+        quotes_file = PROJECT_ROOT / prof_data.get(
+            "quotes_file", "bot_insta/config/quotes/quotes.txt"
+        )
+
+    output_dir = config.get_path("output_dir")
+
     target_w  = vid_cfg.get("target_w", 1080)
     target_h  = vid_cfg.get("target_h", 1920)
     fadeout   = vid_cfg.get("audio_fadeout", 2)
 
-    text_cfg  = config.get_text_settings()
-    audio_cfg = config.get_audio_settings()
+    text_cfg  = prof_data.get("text",  {})
+    audio_cfg = prof_data.get("audio", {})
     volume    = float(audio_cfg.get("volume", 1.0))
 
-    prof_data = config.get_active_profile_data()
     duration  = prof_data.get("duration", vid_cfg.get("duration", 10))
     overlay_name = prof_data.get("overlay_image", "")
     overlay_path = config.get_path("overlays") / overlay_name if overlay_name else None
-    
-    config._config["active_profile"] = orig
-    
+
     return VideoContext(
         bg_dir=bg_dir, music_dir=music_dir, quotes_file=quotes_file, output_dir=output_dir,
         target_w=target_w, target_h=target_h, fadeout=fadeout, volume=volume, duration=duration,

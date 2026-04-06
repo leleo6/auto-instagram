@@ -74,6 +74,7 @@ class DashboardView(ctk.CTkFrame):
 
         self._job_count = 0
         self._active = 0
+        self._active_lock = threading.Lock()  # BUG-04: protege el contador de jobs activos
         self._hint = ctk.CTkLabel(self.jobs_wrap, text="No jobs yet. Press Generate to start.",
                                    font=FONT_SMALL, text_color="#444")
         self._hint.grid(padx=20, pady=40)
@@ -120,7 +121,8 @@ class DashboardView(ctk.CTkFrame):
             self._hint.grid_forget()
 
         self._job_count += 1
-        self._active += 1
+        with self._active_lock:   # BUG-04 fix
+            self._active += 1
         self._update_q()
 
         job_id = self._job_count
@@ -182,8 +184,8 @@ class DashboardView(ctk.CTkFrame):
 
 
         def run():
-            orig = config.get_active_profile()
-            config._config["active_profile"] = profile
+            # BUG-03 fix: make_video_context() ya lee el perfil directamente sin mutar
+            # el singleton config. No se necesita capturar/restaurar active_profile aquí.
             
             # Parse dynamic platform selection
             target_platform = "Local"
@@ -257,8 +259,8 @@ class DashboardView(ctk.CTkFrame):
                 self.after(0, lambda: self.app.accounts.refresh_list())
             finally:
                 self.after(0, lambda: btn_cancel.configure(state="disabled", fg_color="transparent", text_color="#333"))
-                config._config["active_profile"] = orig
-                self._active -= 1
+                with self._active_lock:   # BUG-04 fix
+                    self._active -= 1
                 self.after(0, self._update_q)
 
         threading.Thread(target=run, daemon=True).start()

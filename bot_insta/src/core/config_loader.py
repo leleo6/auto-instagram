@@ -106,7 +106,7 @@ class ConfigLoader:
 
     def get(self, section: str, key: str | None = None, default=None):
         sec = self._config.get(section, {})
-        if key:
+        if key is not None:  # OPT-02 fix: `if key:` fallaba con key=0 o key=""
             return sec.get(key, default)
         return sec
 
@@ -191,5 +191,31 @@ class ConfigLoader:
         self._config = self._load()
 
 
-# Singleton
-config = ConfigLoader()
+# ── Lazy Singleton ─────────────────────────────────────────────────────────────
+# BUG-05 fix: el singleton se instanciaba al importar el módulo, lo que causaba
+# FileNotFoundError si config.yaml no existía (entornos CI/CD, tests, Docker).
+# El _ConfigProxy difiere la creación hasta el primer acceso real a un atributo.
+
+class _ConfigProxy:
+    """Proxy transparente que crea el ConfigLoader real en el primer uso."""
+    __slots__ = ("_real",)
+
+    def _get(self) -> ConfigLoader:
+        try:
+            real = object.__getattribute__(self, "_real")
+        except AttributeError:
+            real = ConfigLoader()
+            object.__setattr__(self, "_real", real)
+        return real
+
+    def __getattr__(self, name: str):
+        return getattr(self._get(), name)
+
+    def __setattr__(self, name: str, value):
+        if name == "_real":
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._get(), name, value)
+
+
+config: ConfigLoader = _ConfigProxy()  # type: ignore[assignment]

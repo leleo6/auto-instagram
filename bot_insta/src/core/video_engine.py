@@ -95,6 +95,9 @@ def load_random_quote(quotes_file: Path) -> str:
 
 
 def prepare_background(video_path: Path, duration: float, target_w: int, target_h: int) -> VideoFileClip:
+    # EC-09 fix: dimensiones inválidas causan ZeroDivisionError en el cálculo de ratio
+    if target_w <= 0 or target_h <= 0:
+        raise ValueError(f"Dimensiones de video inválidas: {target_w}x{target_h}")
     clip = VideoFileClip(str(video_path), audio=False)
     if clip.duration < duration:
         clip = clip.fx(vfx.loop, duration=duration)
@@ -119,6 +122,12 @@ def prepare_background(video_path: Path, duration: float, target_w: int, target_
 
 def prepare_audio(audio_path: Path, duration: float, fadeout: float, volume: float = 1.0) -> AudioFileClip:
     audio = AudioFileClip(str(audio_path))
+    # EC-01 fix: archivo de audio vacío o inválido causa ZeroDivisionError
+    if audio.duration <= 0:
+        audio.close()
+        raise ValueError(
+            f"El archivo de audio '{audio_path.name}' tiene duración cero o es inválido."
+        )
     if audio.duration < duration:
         loops = int(duration / audio.duration) + 1
         audio = concatenate_audioclips([audio] * loops)
@@ -181,42 +190,54 @@ def create_reel(context: VideoContext, progress_callback=None, abort_event=None)
 
     text_cfg  = context.text_cfg or {}
 
-    # ── Pick assets ─────────────────────────────────────────────────────────
+    # ── Pick assets ─────────────────────────────────────────────────────────────
     bg_path    = pick_random_file(context.bg_dir,    (".mp4", ".mov", ".avi"))
     music_path = pick_random_file(context.music_dir, (".mp3", ".wav", ".aac"))
     quote      = load_random_quote(context.quotes_file)
 
-    # ── Build clips ─────────────────────────────────────────────────────────
+    # ── Build clips ─────────────────────────────────────────────────────────────
     background = prepare_background(bg_path, context.duration, context.target_w, context.target_h)
     audio      = prepare_audio(music_path, context.duration, context.fadeout, context.volume)
     text       = build_text_overlay(quote, context.duration, text_cfg)
 
-    layers = [background, text]
+    try:
+        layers = [background, text]
 
-    # Optional overlay/watermark
-    if context.overlay_path:
-        overlay_clip = build_overlay(context.overlay_path, context.duration, context.target_w, context.target_h)
-        if overlay_clip:
-            layers.append(overlay_clip)
+        # Optional overlay/watermark
+        overlay_clip = None
+        if context.overlay_path:
+            overlay_clip = build_overlay(context.overlay_path, context.duration, context.target_w, context.target_h)
+            if overlay_clip:
+                layers.append(overlay_clip)
 
-    final = CompositeVideoClip(layers, size=(context.target_w, context.target_h)).set_audio(audio)
+        final = CompositeVideoClip(layers, size=(context.target_w, context.target_h)).set_audio(audio)
 
-    # ── Export ──────────────────────────────────────────────────────────────
-    today      = datetime.datetime.now().strftime("%Y-%m-%d-%H%M")
-    context.output_dir.mkdir(parents=True, exist_ok=True)
-    out_file   = context.output_dir / f"reel_{today}.mp4"
+        # ── Export ─────────────────────────────────────────────────────────────
+        today    = datetime.datetime.now().strftime("%Y-%m-%d-%H%M")
+        context.output_dir.mkdir(parents=True, exist_ok=True)
+        out_file = context.output_dir / f"reel_{today}.mp4"
 
-    log.info("Renderizando → %s", out_file)
-    logger_obj = GUILogger(on_progress=progress_callback, abort_event=abort_event)
+        log.info("Renderizando → %s", out_file)
+        logger_obj = GUILogger(on_progress=progress_callback, abort_event=abort_event)
 
-    final.write_videofile(
-        str(out_file),
-        fps=30,
-        codec="libx264",
-        audio_codec="aac",
-        preset="fast",
-        threads=os.cpu_count(),
-        logger=logger_obj,
-    )
-    log.info("═══ Reel guardado en %s ═══", out_file)
-    return out_file
+        final.write_videofile(
+            str(out_file),
+            fps=30,
+            codec="libx264",
+            audio_codec="aac",
+            preset="fast",
+            threads=os.cpu_count(),
+            logger=logger_obj,
+        )
+        log.info("═══ Reel guardado en %s ═══", out_file)
+        return out_file
+
+    finally:
+        # BUG-06 fix: liberar file descriptors de MoviePy sea cual sea el resultado.
+        # overlay_clip siempre está definido (como None) antes del try, por lo que
+        # filter(None, ...) simplemente lo omite si no fue creado.
+        for clip in filter(None, [background, audio, text, overlay_clip]):
+            try:
+                clip.close()
+            except Exception:
+                pass

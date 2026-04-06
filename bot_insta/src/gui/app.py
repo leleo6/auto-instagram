@@ -20,6 +20,7 @@ from bot_insta.src.gui.views.captions import CaptionsView
 from bot_insta.src.gui.views.quotes import QuotesView
 from bot_insta.src.gui.views.accounts import AccountsView
 from bot_insta.src.gui.views.history import HistoryView
+from bot_insta.src.gui.views.settings import SettingsView
 
 class BotApp(ctk.CTk):
     def __init__(self):
@@ -43,6 +44,13 @@ class BotApp(ctk.CTk):
 
         nav = ctk.CTkFrame(bar, fg_color="transparent")
         nav.grid(row=0, column=2, padx=12, sticky="e")
+
+        # Right-aligned gear icon for Settings
+        self.btn_s = ctk.CTkButton(bar, text="⚙", font=("Inter", 18), width=38, height=38,
+                                    fg_color="transparent", hover_color="#1c2030",
+                                    text_color="#555",
+                                    command=lambda: self._show("settings"))
+        self.btn_s.grid(row=0, column=3, padx=(0, 12), pady=4)
 
         self.btn_d = ctk.CTkButton(nav, text="Dashboard", font=FONT_SMALL, width=100,
                                     fg_color=ACCENT_TEAL, hover_color="#005f5f",
@@ -86,6 +94,7 @@ class BotApp(ctk.CTk):
         self.quotes    = QuotesView(self.wrap, self)
         self.accounts  = AccountsView(self.wrap, self)
         self.history   = HistoryView(self.wrap, self)
+        self.settings  = SettingsView(self.wrap, self)
         self._show("dashboard")
 
     def _show(self, view):
@@ -95,6 +104,7 @@ class BotApp(ctk.CTk):
         self.quotes.grid_forget()
         self.accounts.grid_forget()
         self.history.grid_forget()
+        self.settings.grid_forget()
         
         # Reset buttons to default color
         self.btn_d.configure(fg_color="#23262e")
@@ -103,6 +113,7 @@ class BotApp(ctk.CTk):
         self.btn_q.configure(fg_color="#23262e")
         self.btn_a.configure(fg_color="#23262e")
         self.btn_h.configure(fg_color="#23262e")
+        self.btn_s.configure(fg_color="transparent", text_color="#555")
 
         if view == "dashboard":
             self.dashboard.grid(row=0, column=0, sticky="nsew")
@@ -123,3 +134,6 @@ class BotApp(ctk.CTk):
             self.history.grid(row=0, column=0, sticky="nsew")
             self.history.refresh()
             self.btn_h.configure(fg_color=ACCENT_TEAL)
+        elif view == "settings":
+            self.settings.grid(row=0, column=0, sticky="nsew")
+            self.btn_s.configure(fg_color="#1c2030", text_color=ACCENT_TEAL)

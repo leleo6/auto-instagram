@@ -74,13 +74,15 @@ class TikTokUploader(SocialUploader):
                     except multiprocessing.TimeoutError:
                         pass
                 
-                if res.successful():
-                    failed = res.get()
-                else:
-                    res.get() # Raise inner exception
+                # get() retorna la lista de videos fallidos O relanza la excepción
+                # interna del proceso hijo — ambos casos quedan cubiertos.
+                result = res.get()
             
-            if failed:
-                raise RuntimeError("La subida a TikTok falló. Revisa logs de tiktok-uploader o si el cookie expiró.")
+            if result:
+                raise RuntimeError(
+                    f"La subida a TikTok falló para {len(result)} video(s). "
+                    "Revisa los logs de tiktok-uploader o si el cookie expiró."
+                )
             log.info("✅ Reel publicado en TikTok.")
             return "OK"
         except Exception as e:

@@ -55,7 +55,8 @@ def get_youtube_service(client_secrets_override: str = None, token_override: str
 
 class YouTubeUploader(SocialUploader):
     @with_retries(max_attempts=3, base_delay=10.0, exceptions=(Exception,))
-    def upload(self, video_path: Path | str, caption: str, credentials: dict, proxy: str = None) -> str:
+    def upload(self, video_path: Path | str, caption: str, credentials: dict,
+               proxy: str = None, abort_event=None) -> str:  # BUG-07 fix: abort_event faltaba
         """
         Subida usando la API de YouTube. Se recomienda enviar videos #Shorts (verticales, <60s).
         Retorna el VideoId de YouTube.
@@ -69,8 +70,10 @@ class YouTubeUploader(SocialUploader):
         privacy = credentials.get("privacy", "unlisted")
 
         caption = caption or config.get("instagram", "default_caption", "✨ Daily motivation 🚀 #motivation")
-        # For YouTube shorts, titles are usually extracted from the first line or are shorter
-        title = caption.split('\n')[0][:95] if caption else f"Auto Upload {video_path.stem}"
+        # EC-08 fix: YouTube rechaza títulos vacíos — usar nombre del archivo como fallback
+        title = caption.split('\n')[0][:95].strip() if caption else ""
+        if not title:
+            title = f"Auto Upload {video_path.stem}"
         if "#shorts" not in caption.lower():
             caption += "\n#shorts"
 

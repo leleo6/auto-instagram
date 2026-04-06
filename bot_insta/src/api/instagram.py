@@ -32,12 +32,13 @@ def _build_client(session_file: Path) -> Client:
             session_file.unlink(missing_ok=True)
     return cl
 
-def _login(cl: Client, username: str, password: str, session_file: Path) -> None:
+def _login(cl: Client, username: str, password: str, session_file: Path) -> Client:
+    """Autentica el cliente y retorna el cliente activo (puede ser uno nuevo si hubo fallo)."""
     try:
         cl.login(username, password)
         log.info("✅ Login exitoso como @%s", username)
     except Exception as exc:
-        log.warning("⚠️  Login con sesión guardada falló (%s). Reintentando fresh…", exc)
+        log.warning("⚠️  Login falló (%s). Reintentando fresh…", exc)
         if session_file.exists():
             session_file.unlink()
         cl = Client()
@@ -45,6 +46,7 @@ def _login(cl: Client, username: str, password: str, session_file: Path) -> None
         log.info("✅ Login fresh exitoso como @%s", username)
     cl.dump_settings(session_file)
     log.info("💾 Sesión guardada en %s", session_file)
+    return cl  # Siempre retornar el cliente activo
 
 def _human_delay(min_s: float = 2.0, max_s: float = 6.0) -> None:
     t = random.uniform(min_s, max_s)
@@ -80,7 +82,7 @@ class InstagramUploader(SocialUploader):
             log.info("🌐 Usando proxy: %s", proxy)
             cl.set_proxy(proxy)
 
-        _login(cl, username, password, sess_path)
+        cl = _login(cl, username, password, sess_path)  # BUG-02 fix: capturar cliente retornado
         _human_delay(3, 8)
 
         log.info("📤 Subiendo Reel: %s", video_path.name)
@@ -90,7 +92,7 @@ class InstagramUploader(SocialUploader):
             log.warning("🔄 Sesión expirada. Re-autenticando…")
             if sess_path.exists(): sess_path.unlink()
             cl = Client()
-            _login(cl, username, password, sess_path)
+            cl = _login(cl, username, password, sess_path)  # BUG-02 fix: capturar cliente retornado
             _human_delay(3, 6)
             media = cl.clip_upload(path=video_path, caption=caption)
 
