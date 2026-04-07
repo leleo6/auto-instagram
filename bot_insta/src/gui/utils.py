@@ -30,18 +30,21 @@ def make_video_context(config, profile: str, quotes_file_override=None) -> Video
     prof_data = config._config.get("profiles", {}).get(profile, {})
     vid_cfg   = config.get_video_settings()
 
-    bg_base   = config.get_path("backgrounds").parent  # base dir
-    sub_bg    = prof_data.get("backgrounds_subfolder", "")
-    bg_dir    = bg_base / sub_bg if sub_bg else bg_base
+    from bot_insta.src.core.config_loader import PROJECT_ROOT
 
-    mu_base   = config.get_path("music").parent  # base dir
+    # ── Background Path ───────────────────────────────────────────────────────
+    base_bg   = PROJECT_ROOT / config._config["paths"]["base_backgrounds"]
+    sub_bg    = prof_data.get("backgrounds_subfolder", "")
+    bg_dir    = base_bg / sub_bg if sub_bg else base_bg
+
+    # ── Music Path ────────────────────────────────────────────────────────────
+    base_mu   = PROJECT_ROOT / config._config["paths"]["base_music"]
     sub_mu    = prof_data.get("music_subfolder", "")
-    music_dir = mu_base / sub_mu if sub_mu else mu_base
+    music_dir = base_mu / sub_mu if sub_mu else base_mu
 
     if quotes_file_override:
         quotes_file = quotes_file_override
     else:
-        from bot_insta.src.core.config_loader import PROJECT_ROOT
         quotes_file = PROJECT_ROOT / prof_data.get(
             "quotes_file", "bot_insta/config/quotes/quotes.txt"
         )

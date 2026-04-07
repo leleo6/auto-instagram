@@ -150,7 +150,19 @@ class DashboardView(ctk.CTkFrame):
         dot = ctk.CTkLabel(card, text="●", font=("Inter", 14), text_color="#444", width=20)
         dot.pack(side="left", padx=(10, 5))
 
-        title = ctk.CTkLabel(card, text=f"#{job_id}  ·  {profile}  →  {opt_choice['label']}",
+        # ── Job card prefix (Job ID + Profile) ──
+        prefix = ctk.CTkLabel(card, text=f"#{job_id}  ·  {profile}  → ",
+                              font=FONT_MAIN, text_color="#c0c0c0")
+        prefix.pack(side="left", padx=(0, 2))
+
+        # ── Platform Icon ──
+        platform = opt_choice.get("platform", "Local")
+        icon_img = create_platform_icon(platform)
+        icon_lbl = ctk.CTkLabel(card, image=icon_img, text="", width=20, height=20)
+        icon_lbl.pack(side="left", padx=(2, 5))
+
+        # ── Account name ──
+        title = ctk.CTkLabel(card, text=opt_choice['label'],
                              font=FONT_MAIN, text_color="#c0c0c0")
         title.pack(side="left", padx=(0, 15))
 

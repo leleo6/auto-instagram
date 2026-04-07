@@ -33,15 +33,15 @@ profiles:
     quotes_file: bot_insta/config/quotes/quotes.txt
     text:
       color: white
-      fadein: 0.47
+      fadein: 0.34
       font_path: /usr/share/fonts/gnu-free/FreeSerifItalic.otf
-      font_size: 81
+      font_size: 69
       max_width: 880
       position:
       - center
       - 960
       stroke_color: black
-      stroke_width: 7
+      stroke_width: 0
       wrap_width: 30
     youtube_privacy: unlisted
   default:
@@ -63,6 +63,28 @@ profiles:
       stroke_color: black
       stroke_width: 0
       wrap_width: 30
+    youtube_privacy: unlisted
+  funcionara?:
+    audio:
+      volume: 1.0
+    backgrounds_subfolder: ''
+    duration: 10
+    music_subfolder: ''
+    overlay_image: ''
+    quote_group_name: Positive
+    quotes_file: bot_insta/config/quotes/Positive.txt
+    text:
+      color: white
+      fadein: 0.47
+      font_path: /usr/share/fonts/gnu-free/FreeSerifItalic.otf
+      font_size: 73
+      max_width: 880
+      position:
+      - center
+      - 960
+      stroke_color: black
+      stroke_width: 2
+      wrap_width: 35
     youtube_privacy: unlisted
 video:
   audio_fadeout: 2

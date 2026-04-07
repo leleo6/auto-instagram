@@ -213,9 +213,11 @@ def create_reel(context: VideoContext, progress_callback=None, abort_event=None)
         final = CompositeVideoClip(layers, size=(context.target_w, context.target_h)).set_audio(audio)
 
         # ── Export ─────────────────────────────────────────────────────────────
-        today    = datetime.datetime.now().strftime("%Y-%m-%d-%H%M")
+        import uuid
+        today    = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        short_id = uuid.uuid4().hex[:6]
         context.output_dir.mkdir(parents=True, exist_ok=True)
-        out_file = context.output_dir / f"reel_{today}.mp4"
+        out_file = context.output_dir / f"reel_{today}_{short_id}.mp4"
 
         log.info("Renderizando → %s", out_file)
         logger_obj = GUILogger(on_progress=progress_callback, abort_event=abort_event)
