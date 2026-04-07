@@ -316,32 +316,36 @@ class HistoryView(ctk.CTkFrame):
     def _view_all_and_sync(self):
         import datetime
         output_dir = config.get_path("output_dir")
-        all_events = history_manager._cache if history_manager._cache is not None else history_manager._load()
-        existing_filenames = {e.get("filename") for e in all_events}
         
-        new_events = []
-        if output_dir.exists():
-            for file_path in output_dir.glob("*.mp4"):
-                if "TEMP" in file_path.name or "MPY_wvf_snd" in file_path.name:
-                    continue
-                if file_path.name not in existing_filenames:
-                    mtime = file_path.stat().st_mtime
-                    dt = datetime.datetime.fromtimestamp(mtime)
-                    entry = {
-                        "date": dt.strftime("%Y-%m-%d"),
-                        "timestamp": dt.isoformat(),
-                        "filename": file_path.name,
-                        "platform": "Unknown",
-                        "account_id": "Unknown",
-                        "status": "Generated",
-                        "media_id": "Unknown"
-                    }
-                    new_events.append(entry)
-                    existing_filenames.add(file_path.name)
-        
+        with history_manager._lock:
+            all_events = history_manager._cache if history_manager._cache is not None else history_manager._load()
+            existing_filenames = {e.get("filename") for e in all_events}
+            
+            new_events = []
+            if output_dir.exists():
+                for file_path in output_dir.glob("*.mp4"):
+                    if "TEMP" in file_path.name or "MPY_wvf_snd" in file_path.name:
+                        continue
+                    if file_path.name not in existing_filenames:
+                        mtime = file_path.stat().st_mtime
+                        dt = datetime.datetime.fromtimestamp(mtime)
+                        entry = {
+                            "date": dt.strftime("%Y-%m-%d"),
+                            "timestamp": dt.isoformat(),
+                            "filename": file_path.name,
+                            "platform": "Unknown",
+                            "account_id": "Unknown",
+                            "status": "Generated",
+                            "media_id": "Unknown"
+                        }
+                        new_events.append(entry)
+                        existing_filenames.add(file_path.name)
+            
+            if new_events:
+                all_events.extend(new_events)
+                history_manager._save(all_events)
+
         if new_events:
-            all_events.extend(new_events)
-            history_manager._save(all_events)
             self._highlight_active_days()
             
         self.lbl_selected_date.configure(text="All Video Records")

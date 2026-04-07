@@ -11,6 +11,7 @@ class HistoryManager:
     def __init__(self, history_file: Path = None):
         self.history_file = history_file or (PROJECT_ROOT / "bot_insta" / "config" / "history.json")
         self._cache = None
+        self._lock = __import__('threading').Lock()
 
     def _load(self) -> list[dict]:
         if not self.history_file.exists():
@@ -46,15 +47,17 @@ class HistoryManager:
             "media_id": media_id
         }
         
-        data = self._cache if self._cache is not None else self._load()
-        data.append(entry)
-        self._save(data)
+        with self._lock:
+            data = self._cache if self._cache is not None else self._load()
+            data.append(entry)
+            self._save(data)
 
     def get_events_by_date(self, target_date: str) -> list[dict]:
         """
         Returns all events matching a specific date string (YYYY-MM-DD).
         """
-        data = self._cache if self._cache is not None else self._load()
+        with self._lock:
+            data = self._cache if self._cache is not None else self._load()
         # Sort so newest is first
         events = [e for e in data if e.get("date") == target_date]
         return sorted(events, key=lambda x: x.get("timestamp", ""), reverse=True)
@@ -64,7 +67,8 @@ class HistoryManager:
         Returns a set of 'YYYY-MM-DD' strings that have at least one upload.
         Useful for highlighting dates on the calendar.
         """
-        data = self._cache if self._cache is not None else self._load()
+        with self._lock:
+            data = self._cache if self._cache is not None else self._load()
         return {e.get("date") for e in data if "date" in e}
 
 # Singleton instance

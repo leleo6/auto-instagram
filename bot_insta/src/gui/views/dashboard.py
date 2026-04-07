@@ -8,6 +8,7 @@ from bot_insta.src.core.account_manager import acc_manager
 from bot_insta.src.core.video_engine import create_reel
 from bot_insta.src.core.uploader_factory import UploaderFactory
 from bot_insta.src.core.history_manager import history_manager
+from bot_insta.src.core.scheduler_manager import scheduler_manager
 from bot_insta.src.gui.components.dropdown import DropdownButton
 from bot_insta.src.gui.utils import create_platform_icon, make_video_context
 from bot_insta.src.gui.bootstrap import PROJECT_ROOT
@@ -59,10 +60,15 @@ class DashboardView(ctk.CTkFrame):
 
         ctk.CTkFrame(ctrl, width=1, height=24, fg_color="#333").pack(side="left", padx=4)
 
-        self.btn_gen = ctk.CTkButton(ctrl, text="Generate", font=FONT_MAIN, width=100,
+        self.btn_gen = ctk.CTkButton(ctrl, text="Generate Now", font=FONT_MAIN, width=100,
                                       fg_color=ACCENT_TEAL, hover_color="#006060",
                                       command=self._queue)
-        self.btn_gen.pack(side="left", padx=12)
+        self.btn_gen.pack(side="left", padx=(12, 6))
+
+        self.btn_sched = ctk.CTkButton(ctrl, text="Bulk / Schedule", font=FONT_MAIN, width=100,
+                                      fg_color="#182335", border_color="#314e82", border_width=1, hover_color="#213350",
+                                      command=self._show_bulk_modal)
+        self.btn_sched.pack(side="left", padx=(0, 12))
 
         self.lbl_q = ctk.CTkLabel(ctrl, text="", font=FONT_SMALL, text_color="#444")
         self.lbl_q.pack(side="right", padx=14)
@@ -279,3 +285,128 @@ class DashboardView(ctk.CTkFrame):
 
     def _update_q(self):
         self.lbl_q.configure(text=f"{self._active} running" if self._active else "")
+
+    def _show_bulk_modal(self):
+        import datetime
+        modal = ctk.CTkToplevel(self)
+        modal.title("Bulk & Schedule Videos")
+        modal.geometry("400x480")
+        modal.attributes("-topmost", True)
+        modal.wait_visibility()
+        modal.grab_set()
+
+        ctk.CTkLabel(modal, text="Bulk Schedule", font=("Inter", 18, "bold")).pack(pady=(20, 10))
+
+        # Quantity
+        f1 = ctk.CTkFrame(modal, fg_color="transparent")
+        f1.pack(fill="x", padx=20, pady=5)
+        ctk.CTkLabel(f1, text="Number of videos:", font=FONT_SMALL).pack(side="left")
+        spin_qty = ctk.CTkEntry(f1, width=100)
+        spin_qty.insert(0, "5")
+        spin_qty.pack(side="right")
+
+        # Interval
+        f2 = ctk.CTkFrame(modal, fg_color="transparent")
+        f2.pack(fill="x", padx=20, pady=5)
+        ctk.CTkLabel(f2, text="Time between uploads (hrs):", font=FONT_SMALL).pack(side="left")
+        spin_interval = ctk.CTkEntry(f2, width=100)
+        spin_interval.insert(0, "3")
+        spin_interval.pack(side="right")
+
+        # First Upload Time (Delay)
+        f3 = ctk.CTkFrame(modal, fg_color="transparent")
+        f3.pack(fill="x", padx=20, pady=5)
+        ctk.CTkLabel(f3, text="Start delay (hours):", font=FONT_SMALL).pack(side="left")
+        spin_delay = ctk.CTkEntry(f3, width=100)
+        spin_delay.insert(0, "0")
+        spin_delay.pack(side="right")
+
+        # Mode
+        ctk.CTkLabel(modal, text="Generation Mode:", font=FONT_SMALL).pack(anchor="w", padx=20, pady=(15, 0))
+        mode_var = ctk.StringVar(value="pre_generate")
+        r1 = ctk.CTkRadioButton(modal, text="Pre-Generate All Now (Uses Disk Space / GPU now)", variable=mode_var, value="pre_generate")
+        r1.pack(anchor="w", padx=30, pady=5)
+        r2 = ctk.CTkRadioButton(modal, text="Generate Just In Time (Creates them exactly at schedule)", variable=mode_var, value="jit")
+        r2.pack(anchor="w", padx=30, pady=5)
+
+        lbl_status = ctk.CTkLabel(modal, text="", font=FONT_SMALL, text_color=ACCENT_GOLD)
+        lbl_status.pack(pady=10)
+
+        def on_submit():
+            try:
+                qty = int(spin_qty.get())
+                interval_hrs = float(spin_interval.get())
+                delay_hrs = float(spin_delay.get())
+                mode = mode_var.get()
+            except ValueError:
+                lbl_status.configure(text="Please enter valid numbers.")
+                return
+
+            if qty <= 0:
+                return
+
+            opt_choice = self.selected_platform_opt if isinstance(self.selected_platform_opt, dict) else {"label": "Local", "platform": "Local"}
+            target_platform = opt_choice.get("platform", "Local")
+            acc_id = opt_choice.get("id", "local")
+            profile = self.selected_profile.get()
+            sel_quotes = self.selected_quotes.get()
+
+            # Resolve Caption string to pass to jobs
+            cap_val = self.selected_cap_opt.get()
+            if cap_val == "Custom":
+                # Fallback custom or ignore for bulk to keep it simple, just grab what's in preset
+                # Bulk queue ideally relies on presets so we'll fallback to "None" if they had "Custom" empty
+                job_caption = ""
+            elif cap_val != "None":
+                data = config.get_caption_data(cap_val)
+                job_caption = f"{data.get('description', '')}\n\n{data.get('hashtags', '')}".strip()
+            else:
+                job_caption = ""
+
+            base_time = datetime.datetime.now() + datetime.timedelta(hours=delay_hrs)
+            batch_id = f"Batch [{qty} videos] - {datetime.datetime.now().strftime('%b %d, %H:%M')}"
+
+            btn_submit.configure(state="disabled")
+
+            def worker():
+                try:
+                    jobs_added = 0
+                    for i in range(qty):
+                        sched_time = base_time + datetime.timedelta(hours=interval_hrs * i)
+                        time_str = sched_time.strftime("%Y-%m-%dT%H:%M:%S")
+
+                        if mode == "pre_generate":
+                            self.after(0, lambda c=i+1: lbl_status.configure(text=f"Generating video {c}/{qty}..."))
+                            quotes_file_override = config.get_quote_file(sel_quotes) if sel_quotes else None
+                            ctx = make_video_context(config, profile, quotes_file_override=quotes_file_override)
+                            # Create reel blocking in this thread
+                            reel_path = create_reel(ctx)
+                            history_manager.log_event(reel_path.name, target_platform, acc_id, "Generated (Bulk Pre-Gen)")
+                            scheduler_manager.add_job(
+                                type="upload_only", profile=profile, account_id=acc_id,
+                                platform=target_platform, caption=job_caption, 
+                                scheduled_time=time_str, file_path=str(reel_path),
+                                quotes_override=sel_quotes, batch_id=batch_id
+                            )
+                        else:
+                            # Just-In-Time
+                            scheduler_manager.add_job(
+                                type="render_and_upload", profile=profile, account_id=acc_id,
+                                platform=target_platform, caption=job_caption, 
+                                scheduled_time=time_str, quotes_override=sel_quotes,
+                                batch_id=batch_id
+                            )
+                        jobs_added += 1
+
+                    self.after(0, lambda: lbl_status.configure(text=f"Successfully scheduled {jobs_added} jobs!", text_color="#4dcf9a"))
+                    self.after(1500, modal.destroy)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    self.after(0, lambda err=e: lbl_status.configure(text=f"Error: {err}", text_color="#e05555"))
+                    self.after(0, lambda: btn_submit.configure(state="normal"))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        btn_submit = ctk.CTkButton(modal, text="Schedule Jobs", font=FONT_MAIN, width=150, fg_color=ACCENT_TEAL, hover_color="#006060", command=on_submit)
+        btn_submit.pack(pady=10)

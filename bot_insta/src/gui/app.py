@@ -20,7 +20,9 @@ from bot_insta.src.gui.views.captions import CaptionsView
 from bot_insta.src.gui.views.quotes import QuotesView
 from bot_insta.src.gui.views.accounts import AccountsView
 from bot_insta.src.gui.views.history import HistoryView
+from bot_insta.src.gui.views.scheduler import SchedulerView
 from bot_insta.src.gui.views.settings import SettingsView
+from bot_insta.src.core.scheduler_worker import scheduler_worker
 
 class BotApp(ctk.CTk):
     def __init__(self):
@@ -28,8 +30,12 @@ class BotApp(ctk.CTk):
         init_app_theme()
         
         self.title("auto-instagram")
-        self.geometry("1220x800")
+        self.geometry("1300x800")
         self.configure(fg_color="#13151a")
+        
+        scheduler_worker.start()
+        # Ensure worker stops on exit
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
@@ -76,6 +82,11 @@ class BotApp(ctk.CTk):
                                     fg_color="#23262e", hover_color="#2e323c",
                                     command=lambda: self._show("accounts"))
         self.btn_a.pack(side="left", padx=(6,0))
+        
+        self.btn_queue = ctk.CTkButton(nav, text="Queue", font=FONT_SMALL, width=100,
+                                    fg_color="#23262e", hover_color="#2e323c",
+                                    command=lambda: self._show("queue"))
+        self.btn_queue.pack(side="left", padx=(6,0))
 
         self.btn_h = ctk.CTkButton(nav, text="Historial", font=FONT_SMALL, width=100,
                                     fg_color="#23262e", hover_color="#2e323c",
@@ -93,9 +104,14 @@ class BotApp(ctk.CTk):
         self.captions  = CaptionsView(self.wrap, self)
         self.quotes    = QuotesView(self.wrap, self)
         self.accounts  = AccountsView(self.wrap, self)
+        self.queue     = SchedulerView(self.wrap, self)
         self.history   = HistoryView(self.wrap, self)
         self.settings  = SettingsView(self.wrap, self)
         self._show("dashboard")
+
+    def on_closing(self):
+        scheduler_worker.stop()
+        self.destroy()
 
     def _show(self, view):
         self.dashboard.grid_forget()
@@ -103,6 +119,7 @@ class BotApp(ctk.CTk):
         self.captions.grid_forget()
         self.quotes.grid_forget()
         self.accounts.grid_forget()
+        self.queue.grid_forget()
         self.history.grid_forget()
         self.settings.grid_forget()
         
@@ -112,6 +129,7 @@ class BotApp(ctk.CTk):
         self.btn_c.configure(fg_color="#23262e")
         self.btn_q.configure(fg_color="#23262e")
         self.btn_a.configure(fg_color="#23262e")
+        self.btn_queue.configure(fg_color="#23262e")
         self.btn_h.configure(fg_color="#23262e")
         self.btn_s.configure(fg_color="transparent", text_color="#555")
 
@@ -130,6 +148,10 @@ class BotApp(ctk.CTk):
         elif view == "accounts":
             self.accounts.grid(row=0, column=0, sticky="nsew")
             self.btn_a.configure(fg_color=ACCENT_TEAL)
+        elif view == "queue":
+            self.queue.grid(row=0, column=0, sticky="nsew")
+            self.queue.refresh()
+            self.btn_queue.configure(fg_color=ACCENT_TEAL)
         elif view == "history":
             self.history.grid(row=0, column=0, sticky="nsew")
             self.history.refresh()
